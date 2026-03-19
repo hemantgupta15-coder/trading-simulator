@@ -415,7 +415,6 @@ function generateDerivatives() {
 
 // Generate derivatives on load
 const derivativesData = generateDerivatives();
-console.log(`Generated ${derivativesData.length} derivatives (Futures + Options)`);
 
 // Initialize Market Data
 function initializeMarketData() {
@@ -430,14 +429,11 @@ function initializeMarketData() {
     if (savedMarketData && savedDate === today && dataVersion === CURRENT_VERSION) {
         try {
             marketData = JSON.parse(savedMarketData);
-            console.log('✅ Loaded market data from localStorage (same day, version ' + CURRENT_VERSION + ')');
             return;
         } catch (error) {
-            console.warn('Failed to load saved market data:', error);
+            // Silent fail
         }
     }
-    
-    console.log('🔄 Regenerating market data (version ' + CURRENT_VERSION + ')...');
     
     // Otherwise, initialize fresh data
     stocksData.forEach(stock => {
@@ -467,7 +463,6 @@ function initializeMarketData() {
     
     // Save the initial data
     saveMarketData();
-    console.log('✅ Initialized fresh market data');
 }
 
 // Save market data to localStorage
@@ -497,8 +492,6 @@ function register() {
     const password = document.getElementById('reg-password').value;
     const confirmPassword = document.getElementById('reg-confirm-password').value;
     const name = document.getElementById('reg-name').value.trim();
-    
-    console.log('Registration attempt for username:', username);
     
     if (!username || !password || !name) {
         alert('Please fill in all fields');
@@ -535,8 +528,6 @@ function register() {
     };
     
     localStorage.setItem('tradingUsers', JSON.stringify(users));
-    console.log('User registered successfully:', username);
-    console.log('Total users now:', Object.keys(users).length);
     
     // Clear form fields
     document.getElementById('reg-username').value = '';
@@ -555,8 +546,6 @@ function login() {
     const username = document.getElementById('login-username').value.trim();
     const password = document.getElementById('login-password').value;
     
-    console.log('Login attempt for username:', username);
-    
     if (!username || !password) {
         alert('Please enter username and password');
         return;
@@ -564,9 +553,6 @@ function login() {
     
     // Reload users from localStorage to ensure we have the latest data
     users = JSON.parse(localStorage.getItem('tradingUsers')) || {};
-    
-    console.log('Available users:', Object.keys(users));
-    console.log('User exists:', !!users[username]);
     
     if (!users[username]) {
         alert(`Username "${username}" not found. Please register first or check your username.`);
@@ -578,7 +564,6 @@ function login() {
         return;
     }
     
-    console.log('Login successful!');
     currentUser = username;
     localStorage.setItem('currentUser', username);
     showDashboard();
@@ -603,13 +588,8 @@ function logout() {
 }
 
 function showDashboard() {
-    console.log('Showing dashboard...');
-    
     const authScreen = document.getElementById('auth-screen');
     const dashboardScreen = document.getElementById('dashboard-screen');
-    
-    console.log('Auth screen:', authScreen);
-    console.log('Dashboard screen:', dashboardScreen);
     
     // Hide auth screen
     authScreen.style.display = 'none';
@@ -618,8 +598,6 @@ function showDashboard() {
     // Show dashboard screen
     dashboardScreen.style.display = 'block';
     dashboardScreen.classList.add('active');
-    
-    console.log('Dashboard display:', dashboardScreen.style.display);
     
     document.getElementById('user-name').textContent = users[currentUser].name;
     
@@ -632,8 +610,6 @@ function showDashboard() {
     renderOrders();
     renderTransactions();
     startPriceUpdates();
-    
-    console.log('Dashboard loaded successfully!');
 }
 
 // Navigation Functions
@@ -1227,11 +1203,6 @@ function openTradeModal(symbol, type = 'buy') {
     const isDerivative = stock.type && (stock.type.includes('Option') || stock.type === 'Future');
     const lotSize = stock.lotSize || 1;
     
-    console.log('Opening trade modal for:', symbol);
-    console.log('Stock data:', stock);
-    console.log('Is derivative:', isDerivative);
-    console.log('Lot size:', lotSize);
-    
     // Update modal title with lot info for derivatives
     let modalTitle = stock.name;
     if (isDerivative && lotSize > 1) {
@@ -1294,6 +1265,9 @@ function closeTradeModal() {
 function setTradeType(type) {
     currentTradeType = type;
     const user = users[currentUser];
+    const stock = marketData[currentTradeStock];
+    const isDerivative = stock.type && (stock.type.includes('Option') || stock.type === 'Future');
+    const lotSize = stock.lotSize || 1;
     
     document.querySelectorAll('.trade-type-btn').forEach(btn => {
         btn.classList.remove('active');
@@ -1302,7 +1276,16 @@ function setTradeType(type) {
     
     // Update quantity based on type
     if (type === 'sell' && user.portfolio[currentTradeStock]) {
-        document.getElementById('trade-quantity').value = user.portfolio[currentTradeStock].quantity;
+        const totalQuantity = user.portfolio[currentTradeStock].quantity;
+        
+        if (isDerivative) {
+            // For derivatives, show number of lots
+            const lots = Math.abs(totalQuantity / lotSize);
+            document.getElementById('trade-quantity').value = lots;
+        } else {
+            // For stocks, show actual quantity
+            document.getElementById('trade-quantity').value = totalQuantity;
+        }
     } else {
         document.getElementById('trade-quantity').value = 1;
     }
@@ -1621,16 +1604,10 @@ function showMarketStatus() {
     const status = isMarketOpen();
     const navbar = document.querySelector('.navbar');
     
-    if (!navbar) {
-        console.warn('Navbar not found');
-        return;
-    }
+    if (!navbar) return;
     
     const navRight = navbar.querySelector('.nav-right');
-    if (!navRight) {
-        console.warn('Nav-right not found');
-        return;
-    }
+    if (!navRight) return;
     
     // Add test mode button only for admin user
     let testModeBtn = document.getElementById('test-mode-btn');
@@ -1684,11 +1661,15 @@ function showMarketStatus() {
         statusElement.style.background = '#f8d7da';
         statusElement.style.color = '#721c24';
     }
-    
-    console.log('✅ Market status indicator added:', statusElement.textContent);
 }
 
 function toggleTestMode() {
+    // Only allow admin to use test mode
+    if (currentUser !== 'admin') {
+        alert('Access Denied: Test mode is only available for admin users.');
+        return;
+    }
+    
     testMode = !testMode;
     
     const btn = document.getElementById('test-mode-btn');
@@ -1699,13 +1680,9 @@ function toggleTestMode() {
     showMarketStatus();
     
     if (testMode) {
-        addAPIDebugLog('🧪 Test mode enabled - bypassing market hours', 'info');
         alert('🧪 Test Mode Enabled!\n\nMarket hours check bypassed.\nAPI will fetch prices even when market is closed.\n\nClick again to disable.');
-        
-        // Trigger immediate price fetch
         fetchRealPricesAndInitialize();
     } else {
-        addAPIDebugLog('Test mode disabled - normal operation', 'info');
         alert('Test Mode Disabled\n\nReturned to normal operation.');
     }
 }
@@ -1718,7 +1695,6 @@ let testMode = false; // Test mode to bypass market hours
 
 async function fetchRealPrices() {
     try {
-        console.log('Fetching real-time prices from Yahoo Finance...');
         
         // Fetch prices in batches to avoid rate limits
         const batchSize = 10;
@@ -1736,12 +1712,9 @@ async function fetchRealPrices() {
         
         isUsingLiveData = true;
         lastPriceUpdate = new Date();
-        console.log('Successfully fetched real-time prices');
         updateDataSourceIndicator();
         
     } catch (error) {
-        console.error('Error fetching real prices:', error);
-        console.log('Falling back to simulated prices');
         isUsingLiveData = false;
         updateDataSourceIndicator();
     }
@@ -1778,7 +1751,6 @@ async function fetchBatchPrices(symbols) {
             });
         }
     } catch (error) {
-        console.error('Error fetching batch:', error);
         throw error;
     }
 }
@@ -1827,10 +1799,13 @@ function updateDataSourceIndicator() {
     }
 }
 
-// Store API debug logs
+// Store API debug logs (only for admin)
 let apiDebugLogs = [];
 
 function addAPIDebugLog(message, type = 'info') {
+    // Only log for admin users
+    if (currentUser !== 'admin') return;
+    
     const timestamp = new Date().toLocaleTimeString('en-IN');
     apiDebugLogs.push({ timestamp, message, type });
     
@@ -1838,18 +1813,22 @@ function addAPIDebugLog(message, type = 'info') {
     if (apiDebugLogs.length > 20) {
         apiDebugLogs.shift();
     }
-    
-    console.log(`[${timestamp}] ${message}`);
 }
 
 function showAPIDebugInfo() {
+    // Only allow admin to view debug info
+    if (currentUser !== 'admin') {
+        alert('Access Denied: Debug information is only available for admin users.');
+        return;
+    }
+    
     const logs = apiDebugLogs.map(log => {
         const icon = log.type === 'error' ? '❌' : log.type === 'success' ? '✅' : 'ℹ️';
         return `${icon} [${log.timestamp}] ${log.message}`;
     }).join('\n');
     
     const message = logs || 'No API logs yet. Waiting for first fetch...';
-    alert(`API Debug Information:\n\n${message}\n\nCheck browser console (F12) for detailed logs.`);
+    alert(`API Debug Information:\n\n${message}`);
 }
 
 // Price Simulation (fallback)
@@ -1858,8 +1837,6 @@ let simulationStarted = false;
 
 async function startPriceUpdates() {
     if (priceUpdateInterval) return;
-    
-    console.log('🚀 Starting price updates...');
     
     // Initialize sentiment immediately
     initializeSectorSentiment();
@@ -1874,19 +1851,12 @@ async function startPriceUpdates() {
     // Try to fetch real prices immediately if market is open
     const marketStatus = isMarketOpen();
     if (marketStatus.open) {
-        console.log('🔄 Market is open - Fetching real prices...');
         fetchRealPricesAndInitialize();
-    } else {
-        console.log('⏸️ Market is closed - Starting simulation with base prices');
     }
     
     priceUpdateInterval = setInterval(() => {
         const marketStatus = isMarketOpen();
         showMarketStatus();
-        
-        console.log('=== Price Update Cycle ===');
-        console.log('Market Status:', marketStatus);
-        console.log('Real Prices Loaded:', realPricesLoaded);
         
         // Check if we need to fetch real prices (only if market is actually open)
         if (marketStatus.open) {
@@ -1894,17 +1864,14 @@ async function startPriceUpdates() {
             const timeSinceLastUpdate = lastPriceUpdate ? now - lastPriceUpdate : PRICE_UPDATE_INTERVAL + 1;
             
             if (timeSinceLastUpdate > PRICE_UPDATE_INTERVAL) {
-                console.log('Fetching real prices from API...');
                 fetchRealPricesAndInitialize();
             }
         }
         
         // ALWAYS run simulation
-        console.log('Running sentiment-based simulation...');
         updatePrices();
         
         // Always update UI
-        console.log('Updating UI...');
         renderStocksList();
         renderDerivativesList();
         updateAccountSummary();
@@ -1913,22 +1880,16 @@ async function startPriceUpdates() {
         renderHoldings();
         renderPositions();
         renderDashboard();
-        
-        console.log('✅ Update cycle complete!');
     }, 3000); // Update every 3 seconds
 }
 
 async function fetchRealPricesAndInitialize() {
     try {
-        console.log('📡 Fetching real-time prices from Alpha Vantage...');
-        
         // Get all unique symbols from watchlist and portfolio
         const user = users[currentUser];
         const watchlistSymbols = user.watchlist ? user.watchlist.stocks : [];
         const portfolioSymbols = Object.keys(user.portfolio);
         const allSymbols = [...new Set([...watchlistSymbols, ...portfolioSymbols])];
-        
-        console.log('Fetching prices for:', allSymbols);
         
         // Fetch prices in batches
         const batchSize = 10;
@@ -1953,9 +1914,6 @@ async function fetchRealPricesAndInitialize() {
             // Initialize sentiment based on real market data
             initializeSentimentFromRealData();
             
-            console.log('✅ Real prices loaded successfully!');
-            console.log('📊 Market sentiment initialized from real data');
-            
             // IMPORTANT: Update UI immediately after fetching prices
             renderStocksList();
             renderDerivativesList();
@@ -1970,8 +1928,6 @@ async function fetchRealPricesAndInitialize() {
             if (document.getElementById('dashboard-section').classList.contains('active')) {
                 renderDashboard();
             }
-            
-            console.log('✅ UI updated with real prices!');
         } else {
             throw new Error('Failed to fetch any real prices');
         }
@@ -1979,8 +1935,6 @@ async function fetchRealPricesAndInitialize() {
         updateDataSourceIndicator();
         
     } catch (error) {
-        console.error('❌ Error fetching real prices:', error);
-        console.log('🔄 Falling back to simulated prices');
         isUsingLiveData = false;
         realPricesLoaded = true; // Allow simulation to start
         initializeSectorSentiment(); // Use random sentiment
@@ -2006,14 +1960,11 @@ async function fetchBatchPricesAndSetSentiment(symbols) {
             const url = `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${symbol}.BSE&apikey=${ALPHA_VANTAGE_API_KEY}`;
             
             addAPIDebugLog(`Fetching ${symbol} from Alpha Vantage...`);
-            console.log(`Fetching ${symbol} from Alpha Vantage...`);
             
             const response = await fetch(url);
             
             if (!response.ok) {
-                const errorMsg = `HTTP ${response.status} for ${symbol}`;
-                addAPIDebugLog(errorMsg, 'error');
-                console.warn(errorMsg);
+                addAPIDebugLog(`HTTP ${response.status} for ${symbol}`, 'error');
                 continue;
             }
             
@@ -2022,14 +1973,12 @@ async function fetchBatchPricesAndSetSentiment(symbols) {
             // Check for API limit
             if (data.Note) {
                 addAPIDebugLog('⚠️ API limit reached (25/day). Using simulation.', 'error');
-                console.warn('Alpha Vantage API limit reached');
                 return false;
             }
             
             // Check for error
             if (data['Error Message']) {
                 addAPIDebugLog(`Error for ${symbol}: ${data['Error Message']}`, 'error');
-                console.warn(`Error for ${symbol}:`, data['Error Message']);
                 continue;
             }
             
@@ -2055,13 +2004,10 @@ async function fetchBatchPricesAndSetSentiment(symbols) {
                     marketData[symbol].realMomentum = Math.abs(changePercent) / 5; // Normalize to 0-1
                     
                     pricesUpdated++;
-                    const priceLog = `${symbol}: ₹${newPrice.toFixed(2)} (${changePercent > 0 ? '+' : ''}${changePercent.toFixed(2)}%)`;
-                    addAPIDebugLog(priceLog, 'success');
-                    console.log(`${symbol}: ₹${newPrice.toFixed(2)} (${changePercent > 0 ? '+' : ''}${changePercent.toFixed(2)}%) - ${marketData[symbol].realSentiment}`);
+                    addAPIDebugLog(`${symbol}: ₹${newPrice.toFixed(2)} (${changePercent > 0 ? '+' : ''}${changePercent.toFixed(2)}%)`, 'success');
                 }
             } else {
                 addAPIDebugLog(`No data for ${symbol}`, 'error');
-                console.warn(`No data for ${symbol}`);
             }
             
             // Delay between requests (Alpha Vantage: 5 req/min = 12 sec between)
@@ -2071,9 +2017,7 @@ async function fetchBatchPricesAndSetSentiment(symbols) {
             }
             
         } catch (error) {
-            const errorMsg = `Error fetching ${symbol}: ${error.message}`;
-            addAPIDebugLog(errorMsg, 'error');
-            console.error(errorMsg);
+            addAPIDebugLog(`Error fetching ${symbol}: ${error.message}`, 'error');
         }
     }
     
@@ -2102,10 +2046,8 @@ function initializeSentimentFromRealData() {
                 trend: Math.max(-1, Math.min(1, avgChange / 5)), // Normalize to -1 to +1
                 momentum: Math.max(0.3, Math.min(1, avgMomentum)),
                 lastUpdate: Date.now(),
-                source: 'real' // Mark as derived from real data
+                source: 'real'
             };
-            
-            console.log(`${sector} Sector: ${avgChange > 0 ? '📈 Bullish' : '📉 Bearish'} (${avgChange.toFixed(2)}%)`);
         } else {
             // Fallback to random if no real data
             sectorSentiment[sector] = {
@@ -2162,7 +2104,6 @@ function updateSectorSentiment() {
         }
         
         lastSentimentUpdate = now;
-        console.log('Sector sentiment updated:', sectorSentiment);
     }
 }
 
@@ -2171,11 +2112,6 @@ function updatePrices() {
     const istTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
     const hours = istTime.getHours();
     const minutes = istTime.getMinutes();
-    
-    // Initialize sentiment if not done
-    if (Object.keys(sectorSentiment).length === 0) {
-        initializeSectorSentiment();
-    }
     
     // Update sector sentiment periodically (but smoothly)
     updateSectorSentiment();
@@ -2334,7 +2270,6 @@ function ensureAdminUser() {
             createdAt: new Date().toISOString()
         };
         localStorage.setItem('tradingUsers', JSON.stringify(users));
-        console.log('✅ Admin user created automatically');
     }
 }
 
