@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <title>Junior Trader - Learn Stock Trading</title>
+    <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+    <!-- Login/Registration Screen -->
+    <div id="auth-screen" class="screen active">
+        <div class="auth-container">
+            <h1>🎯 Junior Trader</h1>
+            <p class="tagline">Learn Stock Trading the Fun Way!</p>
+            
+            <div id="login-form" class="auth-form">
+                <h2>Login</h2>
+                <input type="text" id="login-username" placeholder="Username" required>
+                <input type="password" id="login-password" placeholder="Password" required>
+                <button onclick="login()">Login</button>
+                <p class="switch-auth">Don't have an account? <a href="#" onclick="showRegister()">Register</a></p>
+            </div>
+            
+            <div id="register-form" class="auth-form" style="display: none;">
+                <h2>Create Account</h2>
+                <input type="text" id="reg-username" placeholder="Username" required>
+                <input type="password" id="reg-password" placeholder="Password" required>
+                <input type="password" id="reg-confirm-password" placeholder="Confirm Password" required>
+                <input type="text" id="reg-name" placeholder="Full Name" required>
+                <button onclick="register()">Create Account</button>
+                <p class="switch-auth">Already have an account? <a href="#" onclick="showLogin()">Login</a></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Trading Dashboard -->
+    <div id="dashboard-screen" class="screen">
+        <nav class="navbar">
+            <div class="nav-left">
+                <h1>🎯 Junior Trader</h1>
+            </div>
+            <div class="nav-right">
+                <span id="user-name"></span>
+                <button onclick="logout()" class="btn-logout">Logout</button>
+            </div>
+        </nav>
+
+        <div class="main-container">
+            <!-- Sidebar -->
+            <aside class="sidebar">
+                <div class="menu-item" onclick="showSection('dashboard')">
+                    📊 Dashboard
+                </div>
+                <div class="menu-item" onclick="showSection('positions')">
+                    📈 Positions
+                </div>
+                <div class="menu-item active" onclick="showSection('holdings')">
+                    💼 Holdings
+                </div>
+                <div class="menu-item" onclick="showSection('market')">
+                    🏪 Market
+                </div>
+                <div class="menu-item" onclick="showSection('orders')">
+                    📋 Orders
+                </div>
+                <div class="menu-item" onclick="showSection('funds')">
+                    💰 Funds
+                </div>
+            </aside>
+
+            <!-- Main Content -->
+            <main class="content">
+                <!-- Account Summary -->
+                <div class="account-summary">
+                    <div class="summary-card">
+                        <div class="summary-label">Available Balance</div>
+                        <div class="summary-value" id="available-balance">₹0.00</div>
+                    </div>
+                    <div class="summary-card">
+                        <div class="summary-label">Portfolio Value</div>
+                        <div class="summary-value" id="portfolio-value">₹0.00</div>
+                    </div>
+                    <div class="summary-card">
+                        <div class="summary-label">Total P&L</div>
+                        <div class="summary-value" id="total-pnl">₹0.00</div>
+                    </div>
+                    <div class="summary-card">
+                        <div class="summary-label">Day's P&L</div>
+                        <div class="summary-value" id="day-pnl">₹0.00</div>
+                    </div>
+                </div>
+
+                <!-- Dashboard Section -->
+                <section id="dashboard-section" class="content-section">
+                    <h2>Dashboard</h2>
+                    <div class="dashboard-summary">
+                        <div class="summary-section">
+                            <h3>Equity</h3>
+                            <div class="equity-stats">
+                                <div class="stat-item">
+                                    <span class="stat-label">Margin available</span>
+                                    <span class="stat-value" id="dash-margin">₹0.00</span>
+                                </div>
+                                <div class="stat-item">
+                                    <span class="stat-label">Margins used</span>
+                                    <span class="stat-value" id="dash-used">₹0.00</span>
+                                </div>
+                                <div class="stat-item">
+                                    <span class="stat-label">Opening balance</span>
+                                    <span class="stat-value" id="dash-opening">₹1,00,000.00</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="summary-section">
+                            <h3>Holdings</h3>
+                            <div class="holdings-stats">
+                                <div class="stat-item">
+                                    <span class="stat-label">Total value</span>
+                                    <span class="stat-value" id="dash-holdings-value">₹0.00</span>
+                                </div>
+                                <div class="stat-item">
+                                    <span class="stat-label">P&L</span>
+                                    <span class="stat-value" id="dash-holdings-pnl">₹0.00</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Positions Section (Day's P&L) -->
+                <section id="positions-section" class="content-section">
+                    <h2>Positions (Day's P&L)</h2>
+                    <div id="positions-container">
+                        <div class="empty-state">
+                            <p>You don't have any open positions.</p>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Holdings Section -->
+                <section id="holdings-section" class="content-section active">
+                    <h2>Holdings</h2>
+                    <div id="holdings-container">
+                        <div class="empty-state">
+                            <p>You don't have any holdings yet. Start trading to build your portfolio!</p>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Market Section -->
+                <section id="market-section" class="content-section">
+                    <h2>Market Watch</h2>
+                    <div class="market-header">
+                        <div class="market-tabs">
+                            <button class="tab-btn active" onclick="showMarketTab('stocks')">Stocks</button>
+                            <button class="tab-btn" onclick="showMarketTab('derivatives')">Derivatives</button>
+                        </div>
+                        <button class="btn-add-stock" onclick="openAddStockModal()">+ Add to Watchlist</button>
+                    </div>
+                    
+                    <div id="stocks-tab" class="market-tab-content active">
+                        <div id="stocks-list" class="stocks-list"></div>
+                    </div>
+                    
+                    <div id="derivatives-tab" class="market-tab-content">
+                        <div id="derivatives-list" class="stocks-list"></div>
+                    </div>
+                </section>
+
+                <!-- Orders Section -->
+                <section id="orders-section" class="content-section">
+                    <h2>Order History</h2>
+                    <div id="orders-container">
+                        <div class="empty-state">
+                            <p>No orders yet. Place your first trade!</p>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Funds Section -->
+                <section id="funds-section" class="content-section">
+                    <h2>Manage Funds</h2>
+                    <div class="funds-container">
+                        <div class="funds-card">
+                            <h3>Add Funds</h3>
+                            <input type="number" id="add-amount" placeholder="Enter amount" min="100">
+                            <button onclick="addFunds()" class="btn-primary">Add Funds</button>
+                        </div>
+                        <div class="funds-card">
+                            <h3>Withdraw Funds</h3>
+                            <input type="number" id="withdraw-amount" placeholder="Enter amount" min="100">
+                            <button onclick="withdrawFunds()" class="btn-secondary">Withdraw Funds</button>
+                        </div>
+                    </div>
+                    
+                    <h3>Transaction History</h3>
+                    <div id="transactions-container">
+                        <div class="empty-state">
+                            <p>No transactions yet.</p>
+                        </div>
+                    </div>
+                </section>
+            </main>
+        </div>
+    </div>
+
+    <!-- Add Stock Modal -->
+    <div id="add-stock-modal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeAddStockModal()">&times;</span>
+            <h2>Add to Watchlist</h2>
+            
+            <div class="add-stock-tabs">
+                <button class="add-stock-tab-btn active" onclick="showAddStockTab('stocks')">Stocks</button>
+                <button class="add-stock-tab-btn" onclick="showAddStockTab('derivatives')">Derivatives</button>
+            </div>
+            
+            <div id="add-stocks-list" class="add-stock-list active">
+                <input type="text" id="search-stocks" placeholder="Search stocks..." oninput="filterStocks('stocks')">
+                <div id="available-stocks" class="available-list"></div>
+            </div>
+            
+            <div id="add-derivatives-list" class="add-stock-list">
+                <input type="text" id="search-derivatives" placeholder="Search derivatives..." oninput="filterStocks('derivatives')">
+                <div id="available-derivatives" class="available-list"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Trading Modal -->
+    <div id="trade-modal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeTradeModal()">&times;</span>
+            <h2 id="modal-stock-name"></h2>
+            <div class="modal-price">
+                <span>Current Price: ₹</span><span id="modal-stock-price"></span>
+            </div>
+            
+            <div class="trade-form">
+                <div class="trade-type-selector">
+                    <button class="trade-type-btn active" onclick="setTradeType('buy')">BUY</button>
+                    <button class="trade-type-btn" onclick="setTradeType('sell')">SELL</button>
+                </div>
+                
+                <div class="form-group">
+                    <label>Quantity</label>
+                    <input type="number" id="trade-quantity" min="1" value="1">
+                </div>
+                
+                <div class="form-group">
+                    <label>Order Type</label>
+                    <select id="order-type">
+                        <option value="market">Market Order</option>
+                        <option value="limit">Limit Order</option>
+                    </select>
+                </div>
+                
+                <div class="form-group" id="limit-price-group" style="display: none;">
+                    <label>Limit Price</label>
+                    <input type="number" id="limit-price" step="0.01">
+                </div>
+                
+                <div class="trade-summary">
+                    <div>Total Amount: ₹<span id="trade-total">0.00</span></div>
+                </div>
+                
+                <button onclick="executeTrade()" class="btn-execute" id="execute-btn">BUY</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="./stocks-data.js"></script>
+    <script src="./app.js"></script>
+</body>
+</html>

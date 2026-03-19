@@ -1,0 +1,27 @@
+{
+  "name": "junior-trader",
+  "version": "1.0.0",
+  "description": "Learn Stock Trading the Fun Way! A comprehensive trading simulator with 500+ NSE stocks.",
+  "main": "index.html",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "trading",
+    "stocks",
+    "simulator",
+    "NSE",
+    "education",
+    "finance"
+  ],
+  "author": "Junior Trader Team",
+  "license": "MIT",
+  "cordova": {
+    "platforms": [
+      "android"
+    ],
+    "plugins": {
+      "cordova-plugin-whitelist": {}
+    }
+  }
+}
