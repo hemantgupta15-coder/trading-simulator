@@ -10,19 +10,95 @@ let currentTradeType = 'buy';
 // Use comprehensive NSE stock data from stocks-data.js
 const stocksData = typeof nseStocksData !== 'undefined' ? nseStocksData : [];
 
-// Derivatives Data (Futures & Options)
-const derivativesData = [
-    { symbol: 'NIFTY50-FUT', name: 'Nifty 50 Future', basePrice: 21850.50, type: 'Future', expiry: '2026-03-26' },
-    { symbol: 'BANKNIFTY-FUT', name: 'Bank Nifty Future', basePrice: 47250.75, type: 'Future', expiry: '2026-03-26' },
-    { symbol: 'RELIANCE-FUT', name: 'Reliance Future', basePrice: 2455.25, type: 'Future', expiry: '2026-03-26' },
-    { symbol: 'NIFTY-22000-CE', name: 'Nifty 22000 Call', basePrice: 185.50, type: 'Call Option', strike: 22000 },
-    { symbol: 'NIFTY-21500-PE', name: 'Nifty 21500 Put', basePrice: 125.75, type: 'Put Option', strike: 21500 },
-    { symbol: 'BANKNIFTY-48000-CE', name: 'Bank Nifty 48000 Call', basePrice: 320.40, type: 'Call Option', strike: 48000 },
-    { symbol: 'BANKNIFTY-46000-PE', name: 'Bank Nifty 46000 Put', basePrice: 280.60, type: 'Put Option', strike: 46000 }
-];
+// Generate Dynamic Derivatives (Futures & Options)
+function generateDerivatives() {
+    const derivatives = [];
+    const today = new Date();
+    const monthlyExpiry = new Date(today.getFullYear(), today.getMonth() + 1, 0); // Last day of next month
+    const expiryStr = monthlyExpiry.toISOString().split('T')[0];
+    
+    // Add index futures
+    derivatives.push(
+        { symbol: 'NIFTY50-FUT', name: 'Nifty 50 Future', basePrice: 21850.50, type: 'Future', expiry: expiryStr },
+        { symbol: 'BANKNIFTY-FUT', name: 'Bank Nifty Future', basePrice: 47250.75, type: 'Future', expiry: expiryStr }
+    );
+    
+    // Generate options for all stocks
+    stocksData.forEach(stock => {
+        const basePrice = stock.basePrice;
+        
+        // Calculate strike prices (5 strikes: 2 below, ATM, 2 above)
+        const strikeInterval = Math.round(basePrice * 0.025); // 2.5% intervals
+        const strikes = [
+            Math.round((basePrice - strikeInterval * 2) / 10) * 10,
+            Math.round((basePrice - strikeInterval) / 10) * 10,
+            Math.round(basePrice / 10) * 10, // ATM
+            Math.round((basePrice + strikeInterval) / 10) * 10,
+            Math.round((basePrice + strikeInterval * 2) / 10) * 10
+        ];
+        
+        strikes.forEach(strike => {
+            // Calculate option premium (simplified Black-Scholes approximation)
+            const moneyness = basePrice / strike;
+            
+            // Call Option
+            const callPremium = moneyness > 1 
+                ? (basePrice - strike) + (basePrice * 0.02) // ITM
+                : (basePrice * 0.02 * Math.exp(-(1 - moneyness) * 2)); // OTM
+            
+            derivatives.push({
+                symbol: `${stock.symbol}-${strike}-CE`,
+                name: `${stock.name} ${strike} Call`,
+                basePrice: Math.max(1, callPremium),
+                type: 'Call Option',
+                strike: strike,
+                underlying: stock.symbol,
+                expiry: expiryStr
+            });
+            
+            // Put Option
+            const putPremium = moneyness < 1 
+                ? (strike - basePrice) + (basePrice * 0.02) // ITM
+                : (basePrice * 0.02 * Math.exp(-(moneyness - 1) * 2)); // OTM
+            
+            derivatives.push({
+                symbol: `${stock.symbol}-${strike}-PE`,
+                name: `${stock.name} ${strike} Put`,
+                basePrice: Math.max(1, putPremium),
+                type: 'Put Option',
+                strike: strike,
+                underlying: stock.symbol,
+                expiry: expiryStr
+            });
+        });
+    });
+    
+    return derivatives;
+}
+
+// Generate derivatives on load
+const derivativesData = generateDerivatives();
+console.log(`Generated ${derivativesData.length} derivatives (Futures + Options)`);
 
 // Initialize Market Data
 function initializeMarketData() {
+    // Try to load saved market data from localStorage
+    const savedMarketData = localStorage.getItem('marketData');
+    const today = new Date().toDateString();
+    const savedDate = localStorage.getItem('marketDataDate');
+    
+    // If we have saved data from today, use it
+    if (savedMarketData && savedDate === today) {
+        try {
+            marketData = JSON.parse(savedMarketData);
+            console.log('✅ Loaded market data from localStorage (same day)');
+            return;
+        } catch (error) {
+            console.warn('Failed to load saved market data:', error);
+        }
+    }
+    
+    // Otherwise, initialize fresh data
     stocksData.forEach(stock => {
         marketData[stock.symbol] = {
             ...stock,
@@ -46,6 +122,20 @@ function initializeMarketData() {
             low: derivative.basePrice
         };
     });
+    
+    // Save the initial data
+    saveMarketData();
+    console.log('✅ Initialized fresh market data');
+}
+
+// Save market data to localStorage
+function saveMarketData() {
+    try {
+        localStorage.setItem('marketData', JSON.stringify(marketData));
+        localStorage.setItem('marketDataDate', new Date().toDateString());
+    } catch (error) {
+        console.warn('Failed to save market data:', error);
+    }
 }
 
 // Authentication Functions
@@ -222,6 +312,7 @@ function showSection(section) {
     if (section === 'positions') renderPositions();
     if (section === 'dashboard') renderDashboard();
     if (section === 'orders') renderOrders();
+    if (section === 'pnl') renderPnLReport();
     if (section === 'funds') renderTransactions();
 }
 
@@ -328,6 +419,22 @@ function renderStocksList() {
         return;
     }
     
+    // Add header row
+    const header = document.createElement('div');
+    header.className = 'stock-item';
+    header.style.fontWeight = 'bold';
+    header.style.background = '#f5f7fa';
+    header.style.borderBottom = '2px solid #dee2e6';
+    header.innerHTML = `
+        <div>Stock</div>
+        <div>Price</div>
+        <div>Change (₹)</div>
+        <div>Change (%)</div>
+        <div>Actions</div>
+        <div></div>
+    `;
+    container.appendChild(header);
+    
     watchlistStocks.forEach(stock => {
         const data = marketData[stock.symbol];
         const item = document.createElement('div');
@@ -378,6 +485,22 @@ function renderDerivativesList() {
         return;
     }
     
+    // Add header row
+    const header = document.createElement('div');
+    header.className = 'stock-item';
+    header.style.fontWeight = 'bold';
+    header.style.background = '#f5f7fa';
+    header.style.borderBottom = '2px solid #dee2e6';
+    header.innerHTML = `
+        <div>Derivative</div>
+        <div>Price</div>
+        <div>Change (₹)</div>
+        <div>Change (%)</div>
+        <div>Actions</div>
+        <div></div>
+    `;
+    container.appendChild(header);
+    
     watchlistDerivatives.forEach(derivative => {
         const data = marketData[derivative.symbol];
         const item = document.createElement('div');
@@ -419,13 +542,32 @@ function renderHoldings() {
     container.innerHTML = '<div class="holdings-table"></div>';
     const table = container.querySelector('.holdings-table');
     
+    // Add header row
+    const header = document.createElement('div');
+    header.className = 'holding-item';
+    header.style.fontWeight = 'bold';
+    header.style.background = '#f5f7fa';
+    header.innerHTML = `
+        <div>Stock</div>
+        <div>Qty</div>
+        <div>Avg Price</div>
+        <div>Current</div>
+        <div>P&L</div>
+        <div>P&L %</div>
+        <div>Actions</div>
+    `;
+    table.appendChild(header);
+    
     for (const symbol in user.portfolio) {
         const holding = user.portfolio[symbol];
         const currentPrice = marketData[symbol].currentPrice;
+        const isShort = holding.quantity < 0;
+        
+        // For short positions, P&L calculation is reversed
         const invested = holding.quantity * holding.avgPrice;
         const current = holding.quantity * currentPrice;
         const pnl = current - invested;
-        const pnlPercent = (pnl / invested) * 100;
+        const pnlPercent = Math.abs(invested) > 0 ? (pnl / Math.abs(invested)) * 100 : 0;
         
         const item = document.createElement('div');
         item.className = 'holding-item';
@@ -433,9 +575,11 @@ function renderHoldings() {
         const pnlClass = pnl >= 0 ? 'positive' : 'negative';
         const pnlSymbol = pnl >= 0 ? '+' : '';
         
+        const positionType = isShort ? ' (SHORT)' : '';
+        
         item.innerHTML = `
             <div>
-                <div class="stock-name">${marketData[symbol].name}</div>
+                <div class="stock-name">${marketData[symbol].name}${positionType}</div>
                 <div class="stock-symbol">${symbol}</div>
             </div>
             <div>${holding.quantity}</div>
@@ -465,6 +609,23 @@ function renderPositions() {
     
     container.innerHTML = '<div class="positions-table"></div>';
     const table = container.querySelector('.positions-table');
+    
+    // Add header row
+    const header = document.createElement('div');
+    header.className = 'position-item';
+    header.style.fontWeight = 'bold';
+    header.style.background = '#f5f7fa';
+    header.innerHTML = `
+        <div>Stock</div>
+        <div>Qty</div>
+        <div>Prev Close</div>
+        <div>Current</div>
+        <div>Day P&L</div>
+        <div>Day P&L %</div>
+        <div>Time</div>
+        <div>Actions</div>
+    `;
+    table.appendChild(header);
     
     for (const symbol in user.portfolio) {
         const holding = user.portfolio[symbol];
@@ -541,6 +702,22 @@ function renderOrders() {
     
     container.innerHTML = '<div class="orders-table"></div>';
     const table = container.querySelector('.orders-table');
+    
+    // Add header row
+    const header = document.createElement('div');
+    header.className = 'order-item';
+    header.style.fontWeight = 'bold';
+    header.style.background = '#f5f7fa';
+    header.innerHTML = `
+        <div>Time</div>
+        <div>Stock</div>
+        <div>Type</div>
+        <div>Qty</div>
+        <div>Price</div>
+        <div>Total</div>
+        <div>Status</div>
+    `;
+    table.appendChild(header);
     
     // Show most recent orders first
     const sortedOrders = [...user.orders].reverse();
@@ -779,6 +956,8 @@ function executeTrade() {
     const orderType = document.getElementById('order-type').value;
     const price = marketData[currentTradeStock].currentPrice;
     const total = quantity * price;
+    const stockData = marketData[currentTradeStock];
+    const isOption = stockData.type && (stockData.type.includes('Option') || stockData.type === 'Future');
     
     if (!quantity || quantity < 1) {
         alert('Please enter a valid quantity');
@@ -812,31 +991,78 @@ function executeTrade() {
             };
         }
         
-        alert(`Successfully bought ${quantity} shares of ${marketData[currentTradeStock].name}`);
+        alert(`Successfully bought ${quantity} ${isOption ? 'contracts' : 'shares'} of ${stockData.name}`);
     } else {
-        // Sell
-        if (!user.portfolio[currentTradeStock] || user.portfolio[currentTradeStock].quantity < quantity) {
-            alert('Insufficient shares to sell');
-            return;
+        // Sell - Different logic for options vs stocks
+        if (isOption) {
+            // OPTIONS: Can sell without owning (writing options)
+            if (user.portfolio[currentTradeStock] && user.portfolio[currentTradeStock].quantity > 0) {
+                // Selling owned options (closing long position)
+                if (user.portfolio[currentTradeStock].quantity < quantity) {
+                    alert('Insufficient contracts to sell');
+                    return;
+                }
+                
+                const avgBuyPrice = user.portfolio[currentTradeStock].avgPrice;
+                const sellPrice = price;
+                const realizedPnLForTrade = (sellPrice - avgBuyPrice) * quantity;
+                user.realizedPnL += realizedPnLForTrade;
+                
+                user.balance += total;
+                user.portfolio[currentTradeStock].quantity -= quantity;
+                
+                if (user.portfolio[currentTradeStock].quantity === 0) {
+                    delete user.portfolio[currentTradeStock];
+                }
+                
+                const pnlMessage = realizedPnLForTrade >= 0 
+                    ? `Profit: ₹${realizedPnLForTrade.toFixed(2)}` 
+                    : `Loss: ₹${Math.abs(realizedPnLForTrade).toFixed(2)}`;
+                alert(`Successfully sold ${quantity} contracts\n${pnlMessage}`);
+            } else {
+                // Writing options (selling without owning - short position)
+                user.balance += total; // Receive premium
+                
+                if (user.portfolio[currentTradeStock]) {
+                    user.portfolio[currentTradeStock].quantity -= quantity; // Negative quantity = short
+                    const totalQuantity = Math.abs(user.portfolio[currentTradeStock].quantity);
+                    const totalValue = Math.abs(user.portfolio[currentTradeStock].quantity * user.portfolio[currentTradeStock].avgPrice);
+                    user.portfolio[currentTradeStock].avgPrice = (totalValue + total) / totalQuantity;
+                } else {
+                    user.portfolio[currentTradeStock] = {
+                        quantity: -quantity, // Negative = short position
+                        avgPrice: price,
+                        purchaseTime: new Date().toISOString()
+                    };
+                }
+                
+                alert(`Successfully wrote (sold) ${quantity} ${stockData.type} contracts\nPremium received: ₹${total.toFixed(2)}\n\nNote: This is a short position. You'll profit if the option price decreases.`);
+            }
+        } else {
+            // STOCKS: Must own to sell
+            if (!user.portfolio[currentTradeStock] || user.portfolio[currentTradeStock].quantity < quantity) {
+                alert('Insufficient shares to sell');
+                return;
+            }
+            
+            // Calculate realized P&L for this sale
+            const avgBuyPrice = user.portfolio[currentTradeStock].avgPrice;
+            const sellPrice = price;
+            const realizedPnLForTrade = (sellPrice - avgBuyPrice) * quantity;
+            user.realizedPnL += realizedPnLForTrade;
+            
+            user.balance += total;
+            user.portfolio[currentTradeStock].quantity -= quantity;
+            
+            if (user.portfolio[currentTradeStock].quantity === 0) {
+                delete user.portfolio[currentTradeStock];
+            }
+            
+            const pnlMessage = realizedPnLForTrade >= 0 
+                ? `Profit: ₹${realizedPnLForTrade.toFixed(2)}` 
+                : `Loss: ₹${Math.abs(realizedPnLForTrade).toFixed(2)}`;
+            alert(`Successfully sold ${quantity} shares of ${stockData.name}\n${pnlMessage}`);
         }
-        
-        // Calculate realized P&L for this sale
-        const avgBuyPrice = user.portfolio[currentTradeStock].avgPrice;
-        const sellPrice = price;
-        const realizedPnLForTrade = (sellPrice - avgBuyPrice) * quantity;
-        user.realizedPnL += realizedPnLForTrade;
-        
-        user.balance += total;
-        user.portfolio[currentTradeStock].quantity -= quantity;
-        
-        if (user.portfolio[currentTradeStock].quantity === 0) {
-            delete user.portfolio[currentTradeStock];
-        }
-        
-        const pnlMessage = realizedPnLForTrade >= 0 
-            ? `Profit: ₹${realizedPnLForTrade.toFixed(2)}` 
-            : `Loss: ₹${Math.abs(realizedPnLForTrade).toFixed(2)}`;
-        alert(`Successfully sold ${quantity} shares of ${marketData[currentTradeStock].name}\n${pnlMessage}`);
     }
     
     // Record order
@@ -859,27 +1085,527 @@ function executeTrade() {
     closeTradeModal();
 }
 
-// Price Simulation
-function startPriceUpdates() {
+// Market Hours & Holiday Calendar
+const MARKET_HOLIDAYS_2026 = [
+    '2026-01-26', // Republic Day
+    '2026-03-14', // Holi
+    '2026-03-30', // Ram Navami
+    '2026-04-02', // Mahavir Jayanti
+    '2026-04-10', // Good Friday
+    '2026-05-01', // Maharashtra Day
+    '2026-08-15', // Independence Day
+    '2026-08-19', // Janmashtami
+    '2026-10-02', // Gandhi Jayanti
+    '2026-10-24', // Dussehra
+    '2026-11-13', // Diwali
+    '2026-11-14', // Diwali (Balipratipada)
+    '2026-11-30', // Guru Nanak Jayanti
+    '2026-12-25'  // Christmas
+];
+
+function isMarketOpen() {
+    const now = new Date();
+    const istTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+    
+    // Check if weekend (Saturday = 6, Sunday = 0)
+    const day = istTime.getDay();
+    if (day === 0 || day === 6) {
+        return { open: false, reason: 'Weekend - Market Closed' };
+    }
+    
+    // Check if holiday
+    const dateStr = istTime.toISOString().split('T')[0];
+    if (MARKET_HOLIDAYS_2026.includes(dateStr)) {
+        return { open: false, reason: 'Market Holiday' };
+    }
+    
+    // Check market hours (9:15 AM to 3:30 PM IST)
+    const hours = istTime.getHours();
+    const minutes = istTime.getMinutes();
+    const timeInMinutes = hours * 60 + minutes;
+    
+    const marketOpen = 9 * 60 + 15;  // 9:15 AM
+    const marketClose = 15 * 60 + 30; // 3:30 PM
+    
+    if (timeInMinutes < marketOpen) {
+        return { open: false, reason: 'Pre-Market - Opens at 9:15 AM' };
+    }
+    
+    if (timeInMinutes > marketClose) {
+        return { open: false, reason: 'Market Closed - Opens tomorrow at 9:15 AM' };
+    }
+    
+    return { open: true, reason: 'Market Open' };
+}
+
+function showMarketStatus() {
+    const status = isMarketOpen();
+    const navbar = document.querySelector('.navbar');
+    
+    // Add test mode button only for admin user
+    let testModeBtn = document.getElementById('test-mode-btn');
+    if (currentUser === 'admin') {
+        if (!testModeBtn) {
+            testModeBtn = document.createElement('button');
+            testModeBtn.id = 'test-mode-btn';
+            testModeBtn.textContent = testMode ? '🧪 TEST MODE ON' : '🧪 Test Mode';
+            testModeBtn.style.cssText = 'padding: 5px 15px; border-radius: 20px; font-size: 12px; font-weight: 600; margin-right: 15px; border: none; cursor: pointer; transition: all 0.3s;';
+            testModeBtn.style.background = testMode ? '#ffc107' : '#6c757d';
+            testModeBtn.style.color = testMode ? '#000' : '#fff';
+            testModeBtn.onclick = toggleTestMode;
+            navbar.querySelector('.nav-right').insertBefore(testModeBtn, navbar.querySelector('.nav-right').firstChild);
+        }
+    } else {
+        // Remove test mode button if user is not admin
+        if (testModeBtn) {
+            testModeBtn.remove();
+        }
+    }
+    
+    // Remove existing status if any
+    let statusElement = document.getElementById('market-status');
+    if (!statusElement) {
+        statusElement = document.createElement('div');
+        statusElement.id = 'market-status';
+        statusElement.style.cssText = 'padding: 5px 15px; border-radius: 20px; font-size: 12px; font-weight: 600; margin-right: 15px;';
+        navbar.querySelector('.nav-right').insertBefore(statusElement, testModeBtn.nextSibling);
+    }
+    
+    if (testMode) {
+        statusElement.textContent = '🧪 TEST MODE ACTIVE';
+        statusElement.style.background = '#fff3cd';
+        statusElement.style.color = '#856404';
+    } else if (status.open) {
+        statusElement.textContent = '🟢 ' + status.reason;
+        statusElement.style.background = '#d4edda';
+        statusElement.style.color = '#155724';
+    } else {
+        statusElement.textContent = '🔴 ' + status.reason;
+        statusElement.style.background = '#f8d7da';
+        statusElement.style.color = '#721c24';
+    }
+}
+
+function toggleTestMode() {
+    testMode = !testMode;
+    
+    const btn = document.getElementById('test-mode-btn');
+    btn.textContent = testMode ? '🧪 TEST MODE ON' : '🧪 Test Mode';
+    btn.style.background = testMode ? '#ffc107' : '#6c757d';
+    btn.style.color = testMode ? '#000' : '#fff';
+    
+    showMarketStatus();
+    
+    if (testMode) {
+        addAPIDebugLog('🧪 Test mode enabled - bypassing market hours', 'info');
+        alert('🧪 Test Mode Enabled!\n\nMarket hours check bypassed.\nAPI will fetch prices even when market is closed.\n\nClick again to disable.');
+        
+        // Trigger immediate price fetch
+        fetchRealPricesAndInitialize();
+    } else {
+        addAPIDebugLog('Test mode disabled - normal operation', 'info');
+        alert('Test Mode Disabled\n\nReturned to normal operation.');
+    }
+}
+
+// Real-time Price Fetching
+let lastPriceUpdate = null;
+let isUsingLiveData = false;
+const PRICE_UPDATE_INTERVAL = 5 * 60 * 1000; // 5 minutes
+let testMode = false; // Test mode to bypass market hours
+
+async function fetchRealPrices() {
+    try {
+        console.log('Fetching real-time prices from Yahoo Finance...');
+        
+        // Fetch prices in batches to avoid rate limits
+        const batchSize = 10;
+        const symbols = stocksData.map(stock => stock.symbol + '.NS'); // NSE symbols
+        
+        for (let i = 0; i < symbols.length; i += batchSize) {
+            const batch = symbols.slice(i, i + batchSize);
+            await fetchBatchPrices(batch);
+            
+            // Small delay between batches
+            if (i + batchSize < symbols.length) {
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+        }
+        
+        isUsingLiveData = true;
+        lastPriceUpdate = new Date();
+        console.log('Successfully fetched real-time prices');
+        updateDataSourceIndicator();
+        
+    } catch (error) {
+        console.error('Error fetching real prices:', error);
+        console.log('Falling back to simulated prices');
+        isUsingLiveData = false;
+        updateDataSourceIndicator();
+    }
+}
+
+async function fetchBatchPrices(symbols) {
+    const symbolsQuery = symbols.join(',');
+    
+    // Using Yahoo Finance API via CORS proxy
+    const corsProxy = 'https://api.allorigins.win/raw?url=';
+    const yahooUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbolsQuery}`;
+    
+    try {
+        const response = await fetch(corsProxy + encodeURIComponent(yahooUrl));
+        const data = await response.json();
+        
+        if (data.quoteResponse && data.quoteResponse.result) {
+            data.quoteResponse.result.forEach(quote => {
+                const symbol = quote.symbol.replace('.NS', '');
+                
+                if (marketData[symbol]) {
+                    const newPrice = quote.regularMarketPrice || quote.currentPrice;
+                    const prevClose = quote.regularMarketPreviousClose;
+                    
+                    if (newPrice && prevClose) {
+                        marketData[symbol].currentPrice = newPrice;
+                        marketData[symbol].previousClose = prevClose;
+                        marketData[symbol].change = newPrice - prevClose;
+                        marketData[symbol].changePercent = ((newPrice - prevClose) / prevClose) * 100;
+                        marketData[symbol].high = quote.regularMarketDayHigh || newPrice;
+                        marketData[symbol].low = quote.regularMarketDayLow || newPrice;
+                    }
+                }
+            });
+        }
+    } catch (error) {
+        console.error('Error fetching batch:', error);
+        throw error;
+    }
+}
+
+function updateDataSourceIndicator() {
+    const navbar = document.querySelector('.navbar');
+    let indicator = document.getElementById('data-source-indicator');
+    
+    if (!indicator) {
+        indicator = document.createElement('div');
+        indicator.id = 'data-source-indicator';
+        indicator.style.cssText = 'padding: 5px 15px; border-radius: 20px; font-size: 12px; font-weight: 600; margin-right: 15px; cursor: pointer;';
+        
+        // Add click handler to show debug info
+        indicator.addEventListener('click', showAPIDebugInfo);
+        
+        const statusElement = document.getElementById('market-status');
+        if (statusElement) {
+            navbar.querySelector('.nav-right').insertBefore(indicator, statusElement);
+        } else {
+            navbar.querySelector('.nav-right').insertBefore(indicator, navbar.querySelector('.nav-right').firstChild);
+        }
+    }
+    
+    if (isUsingLiveData) {
+        const updateTime = lastPriceUpdate ? lastPriceUpdate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '';
+        indicator.textContent = `📡 LIVE DATA (Updated: ${updateTime})`;
+        indicator.style.background = '#d1ecf1';
+        indicator.style.color = '#0c5460';
+        indicator.title = 'Click to see API debug info';
+    } else {
+        indicator.textContent = '🔄 SIMULATED DATA (Click for details)';
+        indicator.style.background = '#fff3cd';
+        indicator.style.color = '#856404';
+        indicator.title = 'Click to see why API failed';
+    }
+}
+
+// Store API debug logs
+let apiDebugLogs = [];
+
+function addAPIDebugLog(message, type = 'info') {
+    const timestamp = new Date().toLocaleTimeString('en-IN');
+    apiDebugLogs.push({ timestamp, message, type });
+    
+    // Keep only last 20 logs
+    if (apiDebugLogs.length > 20) {
+        apiDebugLogs.shift();
+    }
+    
+    console.log(`[${timestamp}] ${message}`);
+}
+
+function showAPIDebugInfo() {
+    const logs = apiDebugLogs.map(log => {
+        const icon = log.type === 'error' ? '❌' : log.type === 'success' ? '✅' : 'ℹ️';
+        return `${icon} [${log.timestamp}] ${log.message}`;
+    }).join('\n');
+    
+    const message = logs || 'No API logs yet. Waiting for first fetch...';
+    alert(`API Debug Information:\n\n${message}\n\nCheck browser console (F12) for detailed logs.`);
+}
+
+// Price Simulation (fallback)
+let realPricesLoaded = false;
+let simulationStarted = false;
+
+async function startPriceUpdates() {
     if (priceUpdateInterval) return;
     
+    // Show market status
+    showMarketStatus();
+    updateDataSourceIndicator();
+    
+    // Try to fetch real prices immediately if market is open
+    const marketStatus = isMarketOpen();
+    if (marketStatus.open) {
+        console.log('🔄 Market is open - Fetching real prices first...');
+        await fetchRealPricesAndInitialize();
+    } else {
+        console.log('⏸️ Market is closed - Using base prices');
+        realPricesLoaded = true;
+    }
+    
     priceUpdateInterval = setInterval(() => {
-        updatePrices();
+        const marketStatus = isMarketOpen();
+        showMarketStatus();
+        
+        console.log('=== Price Update Cycle ===');
+        console.log('Market Status:', marketStatus);
+        console.log('Test Mode:', testMode);
+        console.log('Real Prices Loaded:', realPricesLoaded);
+        
+        // Check if we need to fetch real prices (only if market is actually open)
+        if (marketStatus.open) {
+            const now = new Date();
+            const timeSinceLastUpdate = lastPriceUpdate ? now - lastPriceUpdate : PRICE_UPDATE_INTERVAL + 1;
+            
+            if (timeSinceLastUpdate > PRICE_UPDATE_INTERVAL) {
+                console.log('Fetching real prices from API...');
+                fetchRealPricesAndInitialize();
+            }
+        }
+        
+        // ALWAYS run simulation (for all users, all times)
+        if (realPricesLoaded) {
+            console.log('Running sentiment-based simulation...');
+            updatePrices();
+        } else {
+            console.log('⏳ Waiting for real prices to load...');
+        }
+        
+        // Always update UI
+        console.log('Updating UI...');
         renderStocksList();
         renderDerivativesList();
         updateAccountSummary();
         
-        // Update holdings and positions if on those sections
-        if (document.getElementById('holdings-section').classList.contains('active')) {
-            renderHoldings();
+        // ALWAYS update holdings and positions (not just when visible)
+        // This ensures prices are current when user switches tabs
+        renderHoldings();
+        renderPositions();
+        renderDashboard();
+        
+        console.log('Update cycle complete!');
+    }, 3000); // Check every 3 seconds
+}
+
+async function fetchRealPricesAndInitialize() {
+    try {
+        console.log('📡 Fetching real-time prices from Alpha Vantage...');
+        
+        // Get all unique symbols from watchlist and portfolio
+        const user = users[currentUser];
+        const watchlistSymbols = user.watchlist ? user.watchlist.stocks : [];
+        const portfolioSymbols = Object.keys(user.portfolio);
+        const allSymbols = [...new Set([...watchlistSymbols, ...portfolioSymbols])];
+        
+        console.log('Fetching prices for:', allSymbols);
+        
+        // Fetch prices in batches
+        const batchSize = 10;
+        let successCount = 0;
+        
+        for (let i = 0; i < allSymbols.length; i += batchSize) {
+            const batch = allSymbols.slice(i, i + batchSize).map(s => s + '.NS');
+            const success = await fetchBatchPricesAndSetSentiment(batch);
+            if (success) successCount++;
+            
+            // Small delay between batches
+            if (i + batchSize < allSymbols.length) {
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
         }
-        if (document.getElementById('positions-section').classList.contains('active')) {
-            renderPositions();
+        
+        if (successCount > 0) {
+            isUsingLiveData = true;
+            realPricesLoaded = true;
+            lastPriceUpdate = new Date();
+            
+            // Initialize sentiment based on real market data
+            initializeSentimentFromRealData();
+            
+            console.log('✅ Real prices loaded successfully!');
+            console.log('📊 Market sentiment initialized from real data');
+            
+            // IMPORTANT: Update UI immediately after fetching prices
+            renderStocksList();
+            renderDerivativesList();
+            updateAccountSummary();
+            
+            if (document.getElementById('holdings-section').classList.contains('active')) {
+                renderHoldings();
+            }
+            if (document.getElementById('positions-section').classList.contains('active')) {
+                renderPositions();
+            }
+            if (document.getElementById('dashboard-section').classList.contains('active')) {
+                renderDashboard();
+            }
+            
+            console.log('✅ UI updated with real prices!');
+        } else {
+            throw new Error('Failed to fetch any real prices');
         }
-        if (document.getElementById('dashboard-section').classList.contains('active')) {
-            renderDashboard();
+        
+        updateDataSourceIndicator();
+        
+    } catch (error) {
+        console.error('❌ Error fetching real prices:', error);
+        console.log('🔄 Falling back to simulated prices');
+        isUsingLiveData = false;
+        realPricesLoaded = true; // Allow simulation to start
+        initializeSectorSentiment(); // Use random sentiment
+        updateDataSourceIndicator();
+    }
+}
+
+async function fetchBatchPricesAndSetSentiment(symbols) {
+    const ALPHA_VANTAGE_API_KEY = 'IBR2ZOARKOZ1O8XZ';
+    
+    addAPIDebugLog(`Fetching batch: ${symbols.map(s => s.replace('.NS', '')).join(', ')}`);
+    addAPIDebugLog('Using Alpha Vantage API (no CORS issues!)');
+    
+    let pricesUpdated = 0;
+    
+    // Alpha Vantage allows 5 requests per minute, 25 per day
+    // Fetch one stock at a time with delay
+    for (let i = 0; i < symbols.length; i++) {
+        const symbol = symbols[i].replace('.NS', '');
+        
+        try {
+            // Alpha Vantage Global Quote endpoint
+            const url = `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${symbol}.BSE&apikey=${ALPHA_VANTAGE_API_KEY}`;
+            
+            addAPIDebugLog(`Fetching ${symbol} from Alpha Vantage...`);
+            console.log(`Fetching ${symbol} from Alpha Vantage...`);
+            
+            const response = await fetch(url);
+            
+            if (!response.ok) {
+                const errorMsg = `HTTP ${response.status} for ${symbol}`;
+                addAPIDebugLog(errorMsg, 'error');
+                console.warn(errorMsg);
+                continue;
+            }
+            
+            const data = await response.json();
+            
+            // Check for API limit
+            if (data.Note) {
+                addAPIDebugLog('⚠️ API limit reached (25/day). Using simulation.', 'error');
+                console.warn('Alpha Vantage API limit reached');
+                return false;
+            }
+            
+            // Check for error
+            if (data['Error Message']) {
+                addAPIDebugLog(`Error for ${symbol}: ${data['Error Message']}`, 'error');
+                console.warn(`Error for ${symbol}:`, data['Error Message']);
+                continue;
+            }
+            
+            const quote = data['Global Quote'];
+            
+            if (quote && quote['05. price']) {
+                const newPrice = parseFloat(quote['05. price']);
+                const prevClose = parseFloat(quote['08. previous close']);
+                const change = parseFloat(quote['09. change']);
+                const changePercent = parseFloat(quote['10. change percent'].replace('%', ''));
+                
+                if (marketData[symbol]) {
+                    // Set real prices
+                    marketData[symbol].currentPrice = newPrice;
+                    marketData[symbol].previousClose = prevClose;
+                    marketData[symbol].change = change;
+                    marketData[symbol].changePercent = changePercent;
+                    marketData[symbol].high = parseFloat(quote['03. high']) || newPrice;
+                    marketData[symbol].low = parseFloat(quote['04. low']) || newPrice;
+                    
+                    // Store real sentiment (bullish or bearish)
+                    marketData[symbol].realSentiment = changePercent > 0 ? 'bullish' : 'bearish';
+                    marketData[symbol].realMomentum = Math.abs(changePercent) / 5; // Normalize to 0-1
+                    
+                    pricesUpdated++;
+                    const priceLog = `${symbol}: ₹${newPrice.toFixed(2)} (${changePercent > 0 ? '+' : ''}${changePercent.toFixed(2)}%)`;
+                    addAPIDebugLog(priceLog, 'success');
+                    console.log(`${symbol}: ₹${newPrice.toFixed(2)} (${changePercent > 0 ? '+' : ''}${changePercent.toFixed(2)}%) - ${marketData[symbol].realSentiment}`);
+                }
+            } else {
+                addAPIDebugLog(`No data for ${symbol}`, 'error');
+                console.warn(`No data for ${symbol}`);
+            }
+            
+            // Delay between requests (Alpha Vantage: 5 req/min = 12 sec between)
+            // Use shorter delay for faster initial load
+            if (i < symbols.length - 1) {
+                await new Promise(resolve => setTimeout(resolve, 2000)); // 2 seconds instead of 12
+            }
+            
+        } catch (error) {
+            const errorMsg = `Error fetching ${symbol}: ${error.message}`;
+            addAPIDebugLog(errorMsg, 'error');
+            console.error(errorMsg);
         }
-    }, 3000); // Update every 3 seconds
+    }
+    
+    if (pricesUpdated > 0) {
+        addAPIDebugLog(`✅ Updated ${pricesUpdated} stock prices from Alpha Vantage`, 'success');
+        return true;
+    } else {
+        addAPIDebugLog('❌ No prices updated - using simulation', 'error');
+        return false;
+    }
+}
+
+function initializeSentimentFromRealData() {
+    const sectors = ['IT', 'Banking', 'Energy', 'FMCG', 'Pharma', 'Auto', 'Finance', 'Telecom', 'Infrastructure', 'Metals', 'Cement'];
+    
+    sectors.forEach(sector => {
+        // Find all stocks in this sector
+        const sectorStocks = Object.values(marketData).filter(stock => stock.sector === sector && stock.realSentiment);
+        
+        if (sectorStocks.length > 0) {
+            // Calculate average sentiment for sector
+            const avgChange = sectorStocks.reduce((sum, stock) => sum + stock.changePercent, 0) / sectorStocks.length;
+            const avgMomentum = sectorStocks.reduce((sum, stock) => sum + (stock.realMomentum || 0), 0) / sectorStocks.length;
+            
+            sectorSentiment[sector] = {
+                trend: Math.max(-1, Math.min(1, avgChange / 5)), // Normalize to -1 to +1
+                momentum: Math.max(0.3, Math.min(1, avgMomentum)),
+                lastUpdate: Date.now(),
+                source: 'real' // Mark as derived from real data
+            };
+            
+            console.log(`${sector} Sector: ${avgChange > 0 ? '📈 Bullish' : '📉 Bearish'} (${avgChange.toFixed(2)}%)`);
+        } else {
+            // Fallback to random if no real data
+            sectorSentiment[sector] = {
+                trend: (Math.random() - 0.5) * 2,
+                momentum: Math.random() * 0.5 + 0.5,
+                lastUpdate: Date.now(),
+                source: 'simulated'
+            };
+        }
+    });
+    
+    lastSentimentUpdate = Date.now();
+    console.log('📊 Sector sentiment initialized:', sectorSentiment);
 }
 
 function stopPriceUpdates() {
@@ -889,24 +1615,123 @@ function stopPriceUpdates() {
     }
 }
 
+// Enhanced Simulation with Sector Sentiment
+let sectorSentiment = {};
+let lastSentimentUpdate = Date.now();
+
+function initializeSectorSentiment() {
+    const sectors = ['IT', 'Banking', 'Energy', 'FMCG', 'Pharma', 'Auto', 'Finance', 'Telecom', 'Infrastructure', 'Metals', 'Cement'];
+    
+    sectors.forEach(sector => {
+        sectorSentiment[sector] = {
+            trend: (Math.random() - 0.5) * 2, // -1 to +1 (bearish to bullish)
+            momentum: Math.random() * 0.5 + 0.5, // 0.5 to 1.0
+            lastUpdate: Date.now()
+        };
+    });
+}
+
+function updateSectorSentiment() {
+    const now = Date.now();
+    
+    // Update sentiment every 2 minutes
+    if (now - lastSentimentUpdate > 120000) {
+        for (const sector in sectorSentiment) {
+            const sentiment = sectorSentiment[sector];
+            
+            // Gradually shift sentiment (momentum-based)
+            const shift = (Math.random() - 0.5) * 0.3;
+            sentiment.trend = Math.max(-1, Math.min(1, sentiment.trend + shift));
+            
+            // Update momentum
+            sentiment.momentum = Math.random() * 0.5 + 0.5;
+            sentiment.lastUpdate = now;
+        }
+        
+        lastSentimentUpdate = now;
+        console.log('Sector sentiment updated:', sectorSentiment);
+    }
+}
+
 function updatePrices() {
+    const now = new Date();
+    const istTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+    const hours = istTime.getHours();
+    const minutes = istTime.getMinutes();
+    
+    // Initialize sentiment if not done
+    if (Object.keys(sectorSentiment).length === 0) {
+        initializeSectorSentiment();
+    }
+    
+    // Update sector sentiment periodically (but smoothly)
+    updateSectorSentiment();
+    
+    // More volatile in opening hour (9:15-10:15) and closing hour (2:30-3:30)
+    const isOpeningHour = (hours === 9 && minutes >= 15) || hours === 10;
+    const isClosingHour = hours === 14 || (hours === 15 && minutes <= 30);
+    
     for (const symbol in marketData) {
         const stock = marketData[symbol];
         
-        // Random price change between -2% to +2%
-        const changePercent = (Math.random() - 0.5) * 4;
-        const changeAmount = stock.currentPrice * (changePercent / 100);
+        // Skip if this is an option (will be updated separately)
+        if (stock.underlying) continue;
         
+        // Get sector sentiment
+        const sector = stock.sector || 'Diversified';
+        const sentiment = sectorSentiment[sector] || { trend: 0, momentum: 1 };
+        
+        // Use real sentiment if available, otherwise use sector sentiment
+        let trendDirection = sentiment.trend;
+        let trendStrength = sentiment.momentum;
+        
+        if (stock.realSentiment) {
+            // Stock has real market data - follow that trend
+            trendDirection = stock.realSentiment === 'bullish' ? 1 : -1;
+            trendStrength = stock.realMomentum || 0.5;
+            
+            // Smooth transition: 70% real trend, 30% random variation
+            trendDirection = trendDirection * 0.7 + (Math.random() - 0.5) * 0.3;
+        }
+        
+        // Base volatility - much smaller for smooth movement
+        let volatility = 0.05; // Base 0.05% per update (smooth movement)
+        
+        // Adjust volatility based on time
+        if (isOpeningHour || isClosingHour) {
+            volatility = 0.12; // Higher volatility during opening/closing
+        }
+        
+        // Calculate price change following the trend
+        // Trend-based movement (80%) + small random noise (20%)
+        const trendMovement = trendDirection * trendStrength * volatility * 0.8;
+        const randomNoise = (Math.random() - 0.5) * volatility * 0.2;
+        const totalChange = trendMovement + randomNoise;
+        
+        // Apply price change
+        const changeAmount = stock.currentPrice * (totalChange / 100);
         stock.currentPrice += changeAmount;
-        stock.currentPrice = Math.max(stock.currentPrice, stock.basePrice * 0.8); // Min 80% of base
-        stock.currentPrice = Math.min(stock.currentPrice, stock.basePrice * 1.2); // Max 120% of base
         
+        // Realistic bounds (±10% from previous close per day)
+        const maxPrice = stock.previousClose * 1.10;
+        const minPrice = stock.previousClose * 0.90;
+        stock.currentPrice = Math.max(stock.currentPrice, minPrice);
+        stock.currentPrice = Math.min(stock.currentPrice, maxPrice);
+        
+        // Update change metrics
         stock.change = stock.currentPrice - stock.previousClose;
         stock.changePercent = (stock.change / stock.previousClose) * 100;
         
+        // Update high/low
         stock.high = Math.max(stock.high, stock.currentPrice);
         stock.low = Math.min(stock.low, stock.currentPrice);
     }
+    
+    // Update options prices based on underlying stocks
+    updateOptionsPrices();
+    
+    // Save market data to localStorage after each update
+    saveMarketData();
     
     // Update dashboard and positions if they're visible
     updateAccountSummary();
@@ -915,15 +1740,97 @@ function updatePrices() {
     }
 }
 
+function updateOptionsPrices() {
+    // Update options based on their underlying stock prices
+    for (const symbol in marketData) {
+        const option = marketData[symbol];
+        
+        if (option.underlying) {
+            const underlyingStock = marketData[option.underlying];
+            
+            if (underlyingStock) {
+                const underlyingPrice = underlyingStock.currentPrice;
+                const strike = option.strike;
+                const moneyness = underlyingPrice / strike;
+                
+                // Recalculate option premium
+                if (option.type === 'Call Option') {
+                    const intrinsicValue = Math.max(0, underlyingPrice - strike);
+                    const timeValue = underlyingPrice * 0.02 * Math.exp(-(1 - moneyness) * 2);
+                    option.currentPrice = Math.max(1, intrinsicValue + timeValue);
+                } else if (option.type === 'Put Option') {
+                    const intrinsicValue = Math.max(0, strike - underlyingPrice);
+                    const timeValue = underlyingPrice * 0.02 * Math.exp(-(moneyness - 1) * 2);
+                    option.currentPrice = Math.max(1, intrinsicValue + timeValue);
+                }
+                
+                // Update change metrics
+                option.change = option.currentPrice - option.previousClose;
+                option.changePercent = (option.change / option.previousClose) * 100;
+                option.high = Math.max(option.high, option.currentPrice);
+                option.low = Math.min(option.low, option.currentPrice);
+            }
+        }
+    }
+}
+
+// Reset prices at market open (9:15 AM)
+function checkMarketOpen() {
+    const now = new Date();
+    const istTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+    const hours = istTime.getHours();
+    const minutes = istTime.getMinutes();
+    
+    // If it's 9:15 AM, reset previous close to current price
+    if (hours === 9 && minutes === 15) {
+        for (const symbol in marketData) {
+            marketData[symbol].previousClose = marketData[symbol].currentPrice;
+            marketData[symbol].high = marketData[symbol].currentPrice;
+            marketData[symbol].low = marketData[symbol].currentPrice;
+        }
+    }
+}
+
+// Check market open every minute
+setInterval(checkMarketOpen, 60000);
+
 // Save user data
 function saveUserData() {
     users[currentUser] = users[currentUser];
     localStorage.setItem('tradingUsers', JSON.stringify(users));
 }
 
+// Ensure admin user always exists
+function ensureAdminUser() {
+    users = JSON.parse(localStorage.getItem('tradingUsers')) || {};
+    
+    if (!users['admin']) {
+        users['admin'] = {
+            username: 'admin',
+            password: 'admin',
+            name: 'Administrator',
+            balance: 100000,
+            portfolio: {},
+            orders: [],
+            transactions: [],
+            realizedPnL: 0,
+            watchlist: {
+                stocks: ['RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ICICIBANK'],
+                derivatives: ['NIFTY50-FUT', 'BANKNIFTY-FUT']
+            },
+            createdAt: new Date().toISOString()
+        };
+        localStorage.setItem('tradingUsers', JSON.stringify(users));
+        console.log('✅ Admin user created automatically');
+    }
+}
+
 // Initialize on page load
 window.addEventListener('load', function() {
     initializeMarketData();
+    
+    // Ensure admin user exists
+    ensureAdminUser();
     
     // Check if user is already logged in
     const savedUser = localStorage.getItem('currentUser');
@@ -1068,6 +1975,145 @@ function filterStocks(type) {
             item.style.display = 'none';
         }
     });
+}
+
+// P&L Report
+function renderPnLReport() {
+    const user = users[currentUser];
+    
+    // Initialize realizedPnL if it doesn't exist
+    if (user.realizedPnL === undefined) {
+        user.realizedPnL = 0;
+    }
+    
+    // Calculate unrealized P&L
+    const unrealizedPnL = calculateTotalPnL();
+    const realizedPnL = user.realizedPnL;
+    const totalPnL = unrealizedPnL + realizedPnL;
+    
+    // Update summary cards
+    const unrealizedElement = document.getElementById('unrealized-pnl');
+    unrealizedElement.textContent = `₹${unrealizedPnL.toFixed(2)}`;
+    unrealizedElement.className = 'pnl-value ' + (unrealizedPnL >= 0 ? 'positive' : 'negative');
+    
+    const realizedElement = document.getElementById('realized-pnl');
+    realizedElement.textContent = `₹${realizedPnL.toFixed(2)}`;
+    realizedElement.className = 'pnl-value ' + (realizedPnL >= 0 ? 'positive' : 'negative');
+    
+    const totalElement = document.getElementById('total-pnl-report');
+    totalElement.textContent = `₹${totalPnL.toFixed(2)}`;
+    totalElement.className = 'pnl-value ' + (totalPnL >= 0 ? 'positive' : 'negative');
+    
+    // Render unrealized P&L table
+    const unrealizedTable = document.getElementById('unrealized-pnl-table');
+    if (Object.keys(user.portfolio).length === 0) {
+        unrealizedTable.innerHTML = '<div class="empty-state"><p>No current holdings</p></div>';
+    } else {
+        unrealizedTable.innerHTML = '<div class="holdings-table"></div>';
+        const table = unrealizedTable.querySelector('.holdings-table');
+        
+        // Add header
+        const header = document.createElement('div');
+        header.className = 'holding-item';
+        header.style.fontWeight = 'bold';
+        header.style.background = '#f5f7fa';
+        header.innerHTML = `
+            <div>Stock</div>
+            <div>Qty</div>
+            <div>Avg Price</div>
+            <div>Current</div>
+            <div>P&L</div>
+            <div>P&L %</div>
+            <div></div>
+        `;
+        table.appendChild(header);
+        
+        // Add holdings
+        for (const symbol in user.portfolio) {
+            const holding = user.portfolio[symbol];
+            const currentPrice = marketData[symbol].currentPrice;
+            const invested = holding.quantity * holding.avgPrice;
+            const current = holding.quantity * currentPrice;
+            const pnl = current - invested;
+            const pnlPercent = Math.abs(invested) > 0 ? (pnl / Math.abs(invested)) * 100 : 0;
+            
+            const item = document.createElement('div');
+            item.className = 'holding-item';
+            
+            const pnlClass = pnl >= 0 ? 'positive' : 'negative';
+            const pnlSymbol = pnl >= 0 ? '+' : '';
+            
+            item.innerHTML = `
+                <div>
+                    <div class="stock-name">${marketData[symbol].name}</div>
+                    <div class="stock-symbol">${symbol}</div>
+                </div>
+                <div>${holding.quantity}</div>
+                <div>₹${holding.avgPrice.toFixed(2)}</div>
+                <div>₹${currentPrice.toFixed(2)}</div>
+                <div class="${pnlClass}">${pnlSymbol}₹${pnl.toFixed(2)}</div>
+                <div class="${pnlClass}">${pnlSymbol}${pnlPercent.toFixed(2)}%</div>
+                <div></div>
+            `;
+            
+            table.appendChild(item);
+        }
+    }
+    
+    // Render realized P&L table (from completed trades)
+    const realizedTable = document.getElementById('realized-pnl-table');
+    
+    // Filter sell orders to show realized P&L
+    const sellOrders = user.orders.filter(order => order.type === 'sell');
+    
+    if (sellOrders.length === 0) {
+        realizedTable.innerHTML = '<div class="empty-state"><p>No completed trades yet</p></div>';
+    } else {
+        realizedTable.innerHTML = '<div class="orders-table"></div>';
+        const table = realizedTable.querySelector('.orders-table');
+        
+        // Add header
+        const header = document.createElement('div');
+        header.className = 'order-item';
+        header.style.fontWeight = 'bold';
+        header.style.background = '#f5f7fa';
+        header.innerHTML = `
+            <div>Date</div>
+            <div>Stock</div>
+            <div>Qty</div>
+            <div>Sell Price</div>
+            <div>Total</div>
+            <div>Status</div>
+            <div></div>
+        `;
+        table.appendChild(header);
+        
+        // Show most recent first
+        const sortedOrders = [...sellOrders].reverse();
+        
+        sortedOrders.forEach(order => {
+            const item = document.createElement('div');
+            item.className = 'order-item';
+            
+            const date = new Date(order.timestamp);
+            const dateStr = date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+            
+            item.innerHTML = `
+                <div>${dateStr}</div>
+                <div>
+                    <div class="stock-name">${marketData[order.symbol].name}</div>
+                    <div class="stock-symbol">${order.symbol}</div>
+                </div>
+                <div>${order.quantity}</div>
+                <div>₹${order.price.toFixed(2)}</div>
+                <div>₹${order.total.toFixed(2)}</div>
+                <div><span class="order-status completed">Completed</span></div>
+                <div></div>
+            `;
+            
+            table.appendChild(item);
+        });
+    }
 }
 
 // Close modal when clicking outside

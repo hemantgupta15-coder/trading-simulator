@@ -65,6 +65,9 @@
                 <div class="menu-item" onclick="showSection('orders')">
                     📋 Orders
                 </div>
+                <div class="menu-item" onclick="showSection('pnl')">
+                    📊 P&L Report
+                </div>
                 <div class="menu-item" onclick="showSection('funds')">
                     💰 Funds
                 </div>
@@ -176,6 +179,36 @@
                         <div class="empty-state">
                             <p>No orders yet. Place your first trade!</p>
                         </div>
+                    </div>
+                </section>
+
+                <!-- P&L Report Section -->
+                <section id="pnl-section" class="content-section">
+                    <h2>Profit & Loss Report</h2>
+                    <div id="pnl-container">
+                        <div class="pnl-summary-cards">
+                            <div class="pnl-card">
+                                <h3>Unrealized P&L</h3>
+                                <p class="pnl-description">Profit/Loss from current holdings</p>
+                                <div class="pnl-value" id="unrealized-pnl">₹0.00</div>
+                            </div>
+                            <div class="pnl-card">
+                                <h3>Realized P&L</h3>
+                                <p class="pnl-description">Profit/Loss from completed trades</p>
+                                <div class="pnl-value" id="realized-pnl">₹0.00</div>
+                            </div>
+                            <div class="pnl-card highlight">
+                                <h3>Total P&L</h3>
+                                <p class="pnl-description">Overall profit/loss</p>
+                                <div class="pnl-value" id="total-pnl-report">₹0.00</div>
+                            </div>
+                        </div>
+                        
+                        <h3>Unrealized P&L Breakdown (Current Holdings)</h3>
+                        <div id="unrealized-pnl-table"></div>
+                        
+                        <h3>Realized P&L History (Completed Trades)</h3>
+                        <div id="realized-pnl-table"></div>
                     </div>
                 </section>
 
