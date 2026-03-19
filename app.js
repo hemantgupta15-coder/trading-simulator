@@ -1142,6 +1142,17 @@ function showMarketStatus() {
     const status = isMarketOpen();
     const navbar = document.querySelector('.navbar');
     
+    if (!navbar) {
+        console.warn('Navbar not found');
+        return;
+    }
+    
+    const navRight = navbar.querySelector('.nav-right');
+    if (!navRight) {
+        console.warn('Nav-right not found');
+        return;
+    }
+    
     // Add test mode button only for admin user
     let testModeBtn = document.getElementById('test-mode-btn');
     if (currentUser === 'admin') {
@@ -1153,7 +1164,12 @@ function showMarketStatus() {
             testModeBtn.style.background = testMode ? '#ffc107' : '#6c757d';
             testModeBtn.style.color = testMode ? '#000' : '#fff';
             testModeBtn.onclick = toggleTestMode;
-            navbar.querySelector('.nav-right').insertBefore(testModeBtn, navbar.querySelector('.nav-right').firstChild);
+            
+            // Insert before user name
+            const userName = document.getElementById('user-name');
+            if (userName) {
+                navRight.insertBefore(testModeBtn, userName);
+            }
         }
     } else {
         // Remove test mode button if user is not admin
@@ -1162,13 +1178,18 @@ function showMarketStatus() {
         }
     }
     
-    // Remove existing status if any
+    // Add or update market status indicator
     let statusElement = document.getElementById('market-status');
     if (!statusElement) {
         statusElement = document.createElement('div');
         statusElement.id = 'market-status';
         statusElement.style.cssText = 'padding: 5px 15px; border-radius: 20px; font-size: 12px; font-weight: 600; margin-right: 15px;';
-        navbar.querySelector('.nav-right').insertBefore(statusElement, testModeBtn.nextSibling);
+        
+        // Insert before user name
+        const userName = document.getElementById('user-name');
+        if (userName) {
+            navRight.insertBefore(statusElement, userName);
+        }
     }
     
     if (testMode) {
@@ -1184,6 +1205,8 @@ function showMarketStatus() {
         statusElement.style.background = '#f8d7da';
         statusElement.style.color = '#721c24';
     }
+    
+    console.log('✅ Market status indicator added:', statusElement.textContent);
 }
 
 function toggleTestMode() {
