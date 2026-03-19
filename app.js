@@ -1347,6 +1347,14 @@ let simulationStarted = false;
 async function startPriceUpdates() {
     if (priceUpdateInterval) return;
     
+    console.log('🚀 Starting price updates...');
+    
+    // Initialize sentiment immediately
+    initializeSectorSentiment();
+    
+    // Mark as ready to simulate
+    realPricesLoaded = true;
+    
     // Show market status
     showMarketStatus();
     updateDataSourceIndicator();
@@ -1354,11 +1362,10 @@ async function startPriceUpdates() {
     // Try to fetch real prices immediately if market is open
     const marketStatus = isMarketOpen();
     if (marketStatus.open) {
-        console.log('🔄 Market is open - Fetching real prices first...');
-        await fetchRealPricesAndInitialize();
+        console.log('🔄 Market is open - Fetching real prices...');
+        fetchRealPricesAndInitialize();
     } else {
-        console.log('⏸️ Market is closed - Using base prices');
-        realPricesLoaded = true;
+        console.log('⏸️ Market is closed - Starting simulation with base prices');
     }
     
     priceUpdateInterval = setInterval(() => {
@@ -1367,7 +1374,6 @@ async function startPriceUpdates() {
         
         console.log('=== Price Update Cycle ===');
         console.log('Market Status:', marketStatus);
-        console.log('Test Mode:', testMode);
         console.log('Real Prices Loaded:', realPricesLoaded);
         
         // Check if we need to fetch real prices (only if market is actually open)
@@ -1381,13 +1387,9 @@ async function startPriceUpdates() {
             }
         }
         
-        // ALWAYS run simulation (for all users, all times)
-        if (realPricesLoaded) {
-            console.log('Running sentiment-based simulation...');
-            updatePrices();
-        } else {
-            console.log('⏳ Waiting for real prices to load...');
-        }
+        // ALWAYS run simulation
+        console.log('Running sentiment-based simulation...');
+        updatePrices();
         
         // Always update UI
         console.log('Updating UI...');
@@ -1395,14 +1397,13 @@ async function startPriceUpdates() {
         renderDerivativesList();
         updateAccountSummary();
         
-        // ALWAYS update holdings and positions (not just when visible)
-        // This ensures prices are current when user switches tabs
+        // ALWAYS update holdings and positions
         renderHoldings();
         renderPositions();
         renderDashboard();
         
-        console.log('Update cycle complete!');
-    }, 3000); // Check every 3 seconds
+        console.log('✅ Update cycle complete!');
+    }, 3000); // Update every 3 seconds
 }
 
 async function fetchRealPricesAndInitialize() {
