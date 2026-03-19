@@ -10,6 +10,30 @@ let currentTradeType = 'buy';
 // Use comprehensive NSE stock data from stocks-data.js
 const stocksData = typeof nseStocksData !== 'undefined' ? nseStocksData : [];
 
+// Lot sizes for derivatives (as per NSE)
+const LOT_SIZES = {
+    'NIFTY50': 50,
+    'BANKNIFTY': 25,
+    'RELIANCE': 250,
+    'TCS': 150,
+    'HDFCBANK': 550,
+    'INFY': 300,
+    'ICICIBANK': 1375,
+    'HINDUNILVR': 300,
+    'ITC': 3200,
+    'SBIN': 1500,
+    'BHARTIARTL': 1765,
+    'KOTAKBANK': 400,
+    'LT': 300,
+    'AXISBANK': 1200,
+    'ASIANPAINT': 300,
+    'MARUTI': 100,
+    'SUNPHARMA': 700,
+    'TITAN': 300,
+    'ULTRACEMCO': 100,
+    'WIPRO': 1500
+};
+
 // Generate Dynamic Derivatives (Futures & Options)
 function generateDerivatives() {
     const derivatives = [];
@@ -19,8 +43,24 @@ function generateDerivatives() {
     
     // Add index futures
     derivatives.push(
-        { symbol: 'NIFTY50-FUT', name: 'Nifty 50 Future', basePrice: 21850.50, type: 'Future', expiry: expiryStr },
-        { symbol: 'BANKNIFTY-FUT', name: 'Bank Nifty Future', basePrice: 47250.75, type: 'Future', expiry: expiryStr }
+        { 
+            symbol: 'NIFTY50-FUT', 
+            name: 'Nifty 50 Future', 
+            basePrice: 21850.50, 
+            type: 'Future', 
+            expiry: expiryStr,
+            lotSize: LOT_SIZES['NIFTY50'],
+            underlying: 'NIFTY50'
+        },
+        { 
+            symbol: 'BANKNIFTY-FUT', 
+            name: 'Bank Nifty Future', 
+            basePrice: 47250.75, 
+            type: 'Future', 
+            expiry: expiryStr,
+            lotSize: LOT_SIZES['BANKNIFTY'],
+            underlying: 'BANKNIFTY'
+        }
     );
     
     // Generate options for all stocks
@@ -46,6 +86,9 @@ function generateDerivatives() {
                 ? (basePrice - strike) + (basePrice * 0.02) // ITM
                 : (basePrice * 0.02 * Math.exp(-(1 - moneyness) * 2)); // OTM
             
+            // Get lot size for this stock (default to 100 if not defined)
+            const lotSize = LOT_SIZES[stock.symbol] || 100;
+            
             derivatives.push({
                 symbol: `${stock.symbol}-${strike}-CE`,
                 name: `${stock.name} ${strike} Call`,
@@ -53,7 +96,8 @@ function generateDerivatives() {
                 type: 'Call Option',
                 strike: strike,
                 underlying: stock.symbol,
-                expiry: expiryStr
+                expiry: expiryStr,
+                lotSize: lotSize
             });
             
             // Put Option
@@ -68,7 +112,8 @@ function generateDerivatives() {
                 type: 'Put Option',
                 strike: strike,
                 underlying: stock.symbol,
-                expiry: expiryStr
+                expiry: expiryStr,
+                lotSize: lotSize
             });
         });
     });
@@ -86,17 +131,21 @@ function initializeMarketData() {
     const savedMarketData = localStorage.getItem('marketData');
     const today = new Date().toDateString();
     const savedDate = localStorage.getItem('marketDataDate');
+    const dataVersion = localStorage.getItem('marketDataVersion');
+    const CURRENT_VERSION = '2.0'; // Increment this to force regeneration
     
-    // If we have saved data from today, use it
-    if (savedMarketData && savedDate === today) {
+    // If we have saved data from today AND correct version, use it
+    if (savedMarketData && savedDate === today && dataVersion === CURRENT_VERSION) {
         try {
             marketData = JSON.parse(savedMarketData);
-            console.log('✅ Loaded market data from localStorage (same day)');
+            console.log('✅ Loaded market data from localStorage (same day, version ' + CURRENT_VERSION + ')');
             return;
         } catch (error) {
             console.warn('Failed to load saved market data:', error);
         }
     }
+    
+    console.log('🔄 Regenerating market data (version ' + CURRENT_VERSION + ')...');
     
     // Otherwise, initialize fresh data
     stocksData.forEach(stock => {
@@ -119,7 +168,8 @@ function initializeMarketData() {
             change: 0,
             changePercent: 0,
             high: derivative.basePrice,
-            low: derivative.basePrice
+            low: derivative.basePrice,
+            lotSize: derivative.lotSize || 1 // Ensure lotSize is copied
         };
     });
     
@@ -133,6 +183,7 @@ function saveMarketData() {
     try {
         localStorage.setItem('marketData', JSON.stringify(marketData));
         localStorage.setItem('marketDataDate', new Date().toDateString());
+        localStorage.setItem('marketDataVersion', '2.0'); // Save version
     } catch (error) {
         console.warn('Failed to save market data:', error);
     }
@@ -361,7 +412,10 @@ function calculatePortfolioValue() {
     for (const symbol in user.portfolio) {
         const holding = user.portfolio[symbol];
         const currentPrice = marketData[symbol].currentPrice;
-        total += holding.quantity * currentPrice;
+        
+        // For portfolio value, we want the absolute value of holdings
+        // Short positions (negative quantity) represent a liability, but the value is still positive
+        total += Math.abs(holding.quantity) * currentPrice;
     }
     
     return total;
@@ -529,13 +583,23 @@ function renderDerivativesList() {
     });
 }
 
-// Holdings
+// Holdings (Only cash/delivery stocks, NOT derivatives)
 function renderHoldings() {
     const user = users[currentUser];
     const container = document.getElementById('holdings-container');
     
-    if (Object.keys(user.portfolio).length === 0) {
-        container.innerHTML = '<div class="empty-state"><p>You don\'t have any holdings yet. Start trading to build your portfolio!</p></div>';
+    // Filter only stocks (not derivatives)
+    const stockHoldings = {};
+    for (const symbol in user.portfolio) {
+        const stock = marketData[symbol];
+        const isDerivative = stock.type && (stock.type.includes('Option') || stock.type === 'Future');
+        if (!isDerivative) {
+            stockHoldings[symbol] = user.portfolio[symbol];
+        }
+    }
+    
+    if (Object.keys(stockHoldings).length === 0) {
+        container.innerHTML = '<div class="empty-state"><p>You don\'t have any holdings yet. Holdings show only delivery stocks (not options/futures).</p></div>';
         return;
     }
     
@@ -558,12 +622,10 @@ function renderHoldings() {
     `;
     table.appendChild(header);
     
-    for (const symbol in user.portfolio) {
-        const holding = user.portfolio[symbol];
+    for (const symbol in stockHoldings) {
+        const holding = stockHoldings[symbol];
         const currentPrice = marketData[symbol].currentPrice;
-        const isShort = holding.quantity < 0;
         
-        // For short positions, P&L calculation is reversed
         const invested = holding.quantity * holding.avgPrice;
         const current = holding.quantity * currentPrice;
         const pnl = current - invested;
@@ -575,11 +637,9 @@ function renderHoldings() {
         const pnlClass = pnl >= 0 ? 'positive' : 'negative';
         const pnlSymbol = pnl >= 0 ? '+' : '';
         
-        const positionType = isShort ? ' (SHORT)' : '';
-        
         item.innerHTML = `
             <div>
-                <div class="stock-name">${marketData[symbol].name}${positionType}</div>
+                <div class="stock-name">${marketData[symbol].name}</div>
                 <div class="stock-symbol">${symbol}</div>
             </div>
             <div>${holding.quantity}</div>
@@ -597,13 +657,23 @@ function renderHoldings() {
     }
 }
 
-// Positions (Day's P&L)
+// Positions (Derivatives: Options, Futures, and Intraday trades)
 function renderPositions() {
     const user = users[currentUser];
     const container = document.getElementById('positions-container');
     
-    if (Object.keys(user.portfolio).length === 0) {
-        container.innerHTML = '<div class="empty-state"><p>You don\'t have any open positions.</p></div>';
+    // Filter only derivatives (options, futures)
+    const derivativePositions = {};
+    for (const symbol in user.portfolio) {
+        const stock = marketData[symbol];
+        const isDerivative = stock.type && (stock.type.includes('Option') || stock.type === 'Future');
+        if (isDerivative) {
+            derivativePositions[symbol] = user.portfolio[symbol];
+        }
+    }
+    
+    if (Object.keys(derivativePositions).length === 0) {
+        container.innerHTML = '<div class="empty-state"><p>You don\'t have any open positions. Positions show derivatives (options/futures) only.</p></div>';
         return;
     }
     
@@ -627,13 +697,27 @@ function renderPositions() {
     `;
     table.appendChild(header);
     
-    for (const symbol in user.portfolio) {
-        const holding = user.portfolio[symbol];
+    for (const symbol in derivativePositions) {
+        const holding = derivativePositions[symbol];
         const currentPrice = marketData[symbol].currentPrice;
         const previousClose = marketData[symbol].previousClose;
-        const dayChange = currentPrice - previousClose;
-        const dayPnL = holding.quantity * dayChange;
-        const dayPnLPercent = (dayChange / previousClose) * 100;
+        
+        // Calculate P&L correctly for both long and short positions
+        const isShort = holding.quantity < 0;
+        let pnl, pnlPercent;
+        
+        if (isShort) {
+            // For short positions: profit when price goes down
+            // P&L = (avgPrice - currentPrice) * abs(quantity)
+            pnl = (holding.avgPrice - currentPrice) * Math.abs(holding.quantity);
+            pnlPercent = holding.avgPrice > 0 ? (pnl / (holding.avgPrice * Math.abs(holding.quantity))) * 100 : 0;
+        } else {
+            // For long positions: profit when price goes up
+            const invested = holding.quantity * holding.avgPrice;
+            const current = holding.quantity * currentPrice;
+            pnl = current - invested;
+            pnlPercent = Math.abs(invested) > 0 ? (pnl / Math.abs(invested)) * 100 : 0;
+        }
         
         // Format purchase time
         const purchaseTime = holding.purchaseTime ? new Date(holding.purchaseTime) : null;
@@ -642,20 +726,22 @@ function renderPositions() {
         const item = document.createElement('div');
         item.className = 'position-item';
         
-        const pnlClass = dayPnL >= 0 ? 'positive' : 'negative';
-        const pnlSymbol = dayPnL >= 0 ? '+' : '';
+        const pnlClass = pnl >= 0 ? 'positive' : 'negative';
+        const pnlSymbol = pnl >= 0 ? '+' : '';
+        
+        const positionType = isShort ? ' (SHORT)' : ' (LONG)';
         
         item.innerHTML = `
             <div>
-                <div class="stock-name">${marketData[symbol].name}</div>
+                <div class="stock-name">${marketData[symbol].name}${positionType}</div>
                 <div class="stock-symbol">${symbol}</div>
-                <div class="position-time">Bought: ${timeStr}</div>
+                <div class="position-time">Opened: ${timeStr}</div>
             </div>
             <div>${holding.quantity}</div>
-            <div>₹${previousClose.toFixed(2)}</div>
+            <div>₹${holding.avgPrice.toFixed(2)}</div>
             <div>₹${currentPrice.toFixed(2)}</div>
-            <div class="${pnlClass}">${pnlSymbol}₹${dayPnL.toFixed(2)}</div>
-            <div class="${pnlClass}">${pnlSymbol}${dayPnLPercent.toFixed(2)}%</div>
+            <div class="${pnlClass}">${pnlSymbol}₹${pnl.toFixed(2)}</div>
+            <div class="${pnlClass}">${pnlSymbol}${pnlPercent.toFixed(2)}%</div>
             <div class="position-time">${timeStr}</div>
             <div class="holding-actions">
                 <button class="btn-buy-small" onclick="openTradeModal('${symbol}', 'buy')">+</button>
@@ -846,13 +932,28 @@ function openTradeModal(symbol, type = 'buy') {
     currentTradeType = type;
     const stock = marketData[symbol];
     const user = users[currentUser];
+    const isDerivative = stock.type && (stock.type.includes('Option') || stock.type === 'Future');
+    const lotSize = stock.lotSize || 1;
     
-    document.getElementById('modal-stock-name').textContent = stock.name;
+    console.log('Opening trade modal for:', symbol);
+    console.log('Stock data:', stock);
+    console.log('Is derivative:', isDerivative);
+    console.log('Lot size:', lotSize);
+    
+    // Update modal title with lot info for derivatives
+    let modalTitle = stock.name;
+    if (isDerivative && lotSize > 1) {
+        modalTitle += ` (Lot Size: ${lotSize})`;
+    }
+    document.getElementById('modal-stock-name').textContent = modalTitle;
     document.getElementById('modal-stock-price').textContent = stock.currentPrice.toFixed(2);
     
     // Set default quantity based on trade type
     if (type === 'sell' && user.portfolio[symbol]) {
-        document.getElementById('trade-quantity').value = user.portfolio[symbol].quantity;
+        // For derivatives, show number of lots
+        const totalQuantity = user.portfolio[symbol].quantity;
+        const lots = isDerivative ? Math.abs(totalQuantity / lotSize) : totalQuantity;
+        document.getElementById('trade-quantity').value = lots;
     } else {
         document.getElementById('trade-quantity').value = 1;
     }
@@ -923,10 +1024,21 @@ function setTradeType(type) {
 
 function updateTradeTotal() {
     const quantity = parseInt(document.getElementById('trade-quantity').value) || 0;
-    const price = marketData[currentTradeStock].currentPrice;
-    const total = quantity * price;
+    const stock = marketData[currentTradeStock];
+    const price = stock.currentPrice;
+    const lotSize = stock.lotSize || 1;
     
-    document.getElementById('trade-total').textContent = total.toFixed(2);
+    // For derivatives, multiply by lot size
+    const actualQuantity = quantity * lotSize;
+    const total = actualQuantity * price;
+    
+    // Show lot info if applicable
+    let displayText = total.toFixed(2);
+    if (lotSize > 1) {
+        displayText += ` (${quantity} lot${quantity > 1 ? 's' : ''} × ${lotSize} = ${actualQuantity} units)`;
+    }
+    
+    document.getElementById('trade-total').textContent = displayText;
 }
 
 // Update total when quantity changes
@@ -952,12 +1064,16 @@ document.addEventListener('DOMContentLoaded', function() {
 
 function executeTrade() {
     const user = users[currentUser];
-    const quantity = parseInt(document.getElementById('trade-quantity').value);
+    const lotsOrQuantity = parseInt(document.getElementById('trade-quantity').value);
     const orderType = document.getElementById('order-type').value;
-    const price = marketData[currentTradeStock].currentPrice;
-    const total = quantity * price;
     const stockData = marketData[currentTradeStock];
-    const isOption = stockData.type && (stockData.type.includes('Option') || stockData.type === 'Future');
+    const price = stockData.currentPrice;
+    const isDerivative = stockData.type && (stockData.type.includes('Option') || stockData.type === 'Future');
+    const lotSize = stockData.lotSize || 1;
+    
+    // For derivatives, convert lots to actual quantity
+    const quantity = isDerivative ? lotsOrQuantity * lotSize : lotsOrQuantity;
+    const total = quantity * price;
     
     if (!quantity || quantity < 1) {
         alert('Please enter a valid quantity');
@@ -979,22 +1095,71 @@ function executeTrade() {
         
         if (user.portfolio[currentTradeStock]) {
             const holding = user.portfolio[currentTradeStock];
-            const totalQuantity = holding.quantity + quantity;
-            const totalInvested = (holding.quantity * holding.avgPrice) + total;
-            holding.avgPrice = totalInvested / totalQuantity;
-            holding.quantity = totalQuantity;
+            const oldQuantity = holding.quantity;
+            const newQuantity = oldQuantity + quantity;
+            
+            // Check if we're closing a short position
+            if (oldQuantity < 0 && newQuantity <= 0) {
+                // Still short or closing short position
+                if (Math.abs(newQuantity) < 0.01) {
+                    // Position fully closed
+                    const realizedPnLForTrade = (holding.avgPrice - price) * Math.abs(oldQuantity);
+                    user.realizedPnL += realizedPnLForTrade;
+                    delete user.portfolio[currentTradeStock];
+                    
+                    const pnlMessage = realizedPnLForTrade >= 0 
+                        ? `Profit: ₹${realizedPnLForTrade.toFixed(2)}` 
+                        : `Loss: ₹${Math.abs(realizedPnLForTrade).toFixed(2)}`;
+                    alert(`Successfully closed short position by buying back\n${pnlMessage}`);
+                } else {
+                    // Partially closing short position
+                    const closedQuantity = quantity;
+                    const realizedPnLForTrade = (holding.avgPrice - price) * closedQuantity;
+                    user.realizedPnL += realizedPnLForTrade;
+                    holding.quantity = newQuantity;
+                    
+                    const pnlMessage = realizedPnLForTrade >= 0 
+                        ? `Profit: ₹${realizedPnLForTrade.toFixed(2)}` 
+                        : `Loss: ₹${Math.abs(realizedPnLForTrade).toFixed(2)}`;
+                    alert(`Partially closed short position\nRemaining short: ${Math.abs(newQuantity)} contracts\n${pnlMessage}`);
+                }
+            } else if (oldQuantity < 0 && newQuantity > 0) {
+                // Closing short and going long
+                const shortQuantity = Math.abs(oldQuantity);
+                const realizedPnLForTrade = (holding.avgPrice - price) * shortQuantity;
+                user.realizedPnL += realizedPnLForTrade;
+                
+                // Now create new long position with remaining quantity
+                holding.quantity = newQuantity;
+                holding.avgPrice = price;
+                holding.purchaseTime = new Date().toISOString();
+                
+                const pnlMessage = realizedPnLForTrade >= 0 
+                    ? `Profit: ₹${realizedPnLForTrade.toFixed(2)}` 
+                    : `Loss: ₹${Math.abs(realizedPnLForTrade).toFixed(2)}`;
+                alert(`Closed short position and opened long position\nShort P&L: ${pnlMessage}\nNew long position: ${newQuantity} contracts`);
+            } else {
+                // Adding to existing long position
+                const totalInvested = (holding.quantity * holding.avgPrice) + total;
+                holding.avgPrice = totalInvested / newQuantity;
+                holding.quantity = newQuantity;
+                
+                const contractOrShares = isDerivative ? 'contracts' : 'shares';
+                alert(`Successfully bought ${quantity} ${contractOrShares} of ${stockData.name}`);
+            }
         } else {
             user.portfolio[currentTradeStock] = {
                 quantity: quantity,
                 avgPrice: price,
                 purchaseTime: new Date().toISOString()
             };
+            
+            const contractOrShares = isDerivative ? 'contracts' : 'shares';
+            alert(`Successfully bought ${quantity} ${contractOrShares} of ${stockData.name}`);
         }
-        
-        alert(`Successfully bought ${quantity} ${isOption ? 'contracts' : 'shares'} of ${stockData.name}`);
     } else {
-        // Sell - Different logic for options vs stocks
-        if (isOption) {
+        // Sell - Different logic for derivatives vs stocks
+        if (isDerivative) {
             // OPTIONS: Can sell without owning (writing options)
             if (user.portfolio[currentTradeStock] && user.portfolio[currentTradeStock].quantity > 0) {
                 // Selling owned options (closing long position)
@@ -1024,19 +1189,41 @@ function executeTrade() {
                 user.balance += total; // Receive premium
                 
                 if (user.portfolio[currentTradeStock]) {
-                    user.portfolio[currentTradeStock].quantity -= quantity; // Negative quantity = short
-                    const totalQuantity = Math.abs(user.portfolio[currentTradeStock].quantity);
-                    const totalValue = Math.abs(user.portfolio[currentTradeStock].quantity * user.portfolio[currentTradeStock].avgPrice);
-                    user.portfolio[currentTradeStock].avgPrice = (totalValue + total) / totalQuantity;
+                    // Calculate new average price for short position
+                    const oldQuantity = user.portfolio[currentTradeStock].quantity;
+                    const oldAvgPrice = user.portfolio[currentTradeStock].avgPrice;
+                    const newQuantity = oldQuantity - quantity;
+                    
+                    if (Math.abs(newQuantity) < 0.01) {
+                        // Position closed completely (accounting for floating point errors)
+                        // Calculate realized P&L for closing short position
+                        const realizedPnLForTrade = (oldAvgPrice - price) * Math.abs(oldQuantity);
+                        user.realizedPnL += realizedPnLForTrade;
+                        
+                        delete user.portfolio[currentTradeStock];
+                        
+                        const pnlMessage = realizedPnLForTrade >= 0 
+                            ? `Profit: ₹${realizedPnLForTrade.toFixed(2)}` 
+                            : `Loss: ₹${Math.abs(realizedPnLForTrade).toFixed(2)}`;
+                        alert(`Successfully closed short position\n${pnlMessage}`);
+                    } else {
+                        // Weighted average for short positions
+                        const oldValue = Math.abs(oldQuantity) * oldAvgPrice;
+                        const newValue = quantity * price;
+                        user.portfolio[currentTradeStock].avgPrice = (oldValue + newValue) / Math.abs(newQuantity);
+                        user.portfolio[currentTradeStock].quantity = newQuantity;
+                        
+                        alert(`Successfully wrote (sold) ${quantity} ${stockData.type} contracts\nPremium received: ₹${total.toFixed(2)}\n\nNote: This is a short position. You'll profit if the option price decreases.`);
+                    }
                 } else {
                     user.portfolio[currentTradeStock] = {
                         quantity: -quantity, // Negative = short position
                         avgPrice: price,
                         purchaseTime: new Date().toISOString()
                     };
+                    
+                    alert(`Successfully wrote (sold) ${quantity} ${stockData.type} contracts\nPremium received: ₹${total.toFixed(2)}\n\nNote: This is a short position. You'll profit if the option price decreases.`);
                 }
-                
-                alert(`Successfully wrote (sold) ${quantity} ${stockData.type} contracts\nPremium received: ₹${total.toFixed(2)}\n\nNote: This is a short position. You'll profit if the option price decreases.`);
             }
         } else {
             // STOCKS: Must own to sell
@@ -1305,6 +1492,16 @@ async function fetchBatchPrices(symbols) {
 }
 
 function updateDataSourceIndicator() {
+    // Only show indicator for admin users
+    if (currentUser !== 'admin') {
+        // Remove indicator if it exists for non-admin users
+        const indicator = document.getElementById('data-source-indicator');
+        if (indicator) {
+            indicator.remove();
+        }
+        return;
+    }
+    
     const navbar = document.querySelector('.navbar');
     let indicator = document.getElementById('data-source-indicator');
     
