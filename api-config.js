@@ -349,13 +349,10 @@ console.log('📡 Active API Provider:',
 if (NSE_INDIA_CONFIG.enabled) {
     console.log('');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('✅ NSE India API Enabled via Local Proxy Server');
+    console.log('✅ NSE India API Enabled via Proxy Server');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('📡 Proxy Server: http://localhost:3001');
+    console.log('📡 Proxy Server:', NSE_INDIA_CONFIG.endpoint);
     console.log('🔗 Data Source: NSE India Official API');
-    console.log('');
-    console.log('⚠️  IMPORTANT: Make sure the proxy server is running!');
-    console.log('   Run in terminal: node nse-proxy-server.js');
     console.log('');
     console.log('✨ Features:');
     console.log('   • Real-time NSE stock prices');
