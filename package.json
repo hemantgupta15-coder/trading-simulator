@@ -1,27 +1,24 @@
 {
-  "name": "junior-trader",
+  "name": "trading-simulator-proxy",
   "version": "1.0.0",
-  "description": "Learn Stock Trading the Fun Way! A comprehensive trading simulator with 500+ NSE stocks.",
-  "main": "index.html",
+  "description": "NSE Proxy Server for Trading Simulator",
+  "main": "nse-proxy-server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node nse-proxy-server.js"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "node-fetch": "^2.6.1"
   },
   "keywords": [
     "trading",
-    "stocks",
-    "simulator",
-    "NSE",
-    "education",
-    "finance"
+    "nse",
+    "proxy",
+    "stock-market"
   ],
-  "author": "Junior Trader Team",
-  "license": "MIT",
-  "cordova": {
-    "platforms": [
-      "android"
-    ],
-    "plugins": {
-      "cordova-plugin-whitelist": {}
-    }
-  }
+  "author": "",
+  "license": "MIT"
 }
